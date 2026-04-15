@@ -1,0 +1,28 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/hooks/secrets_check.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'echo $CLAUDE_TOOL_INPUT_PATH | grep -q \"^src/\" && python -m pytest tests/ -x -q 2>&1 | tail -5 || true'",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

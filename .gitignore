@@ -1,0 +1,32 @@
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Environment variables
+.env
+
+# Outputs (large data files)
+outputs/*.json
+outputs/*.csv
+
+# Database
+*.db
+*.sqlite
+
+# OS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+.claude/settings.local.json

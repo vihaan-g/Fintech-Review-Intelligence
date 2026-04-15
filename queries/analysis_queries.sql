@@ -1,0 +1,2 @@
+-- Analysis queries for fintech review intelligence pipeline
+-- Add queries here as pipeline development progresses

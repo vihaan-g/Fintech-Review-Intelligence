@@ -1,25 +1,292 @@
-"""Aggregates SQL analysis results into a structured findings summary."""
+"""Synthesizes SQLAnalyst results into a structured summary for the LLM council."""
+import json
 import logging
-from typing import Dict, List, Any
+import os
+from dataclasses import dataclass
+from datetime import datetime, timezone
+
+from src.analysis.sql_analyst import SQLAnalyst
 
 logger = logging.getLogger(__name__)
 
 
-class FindingsSummarizer:
-    """Converts raw SQL query results into a findings summary for the council."""
+@dataclass
+class FindingsSummary:
+    """Structured output from FindingsSummarizer."""
 
-    def __init__(self, output_path: str = "outputs/findings_summary.json") -> None:
-        """Initialize with the path where findings will be written.
+    cross_app_stats: dict
+    high_signal_reviews: list[dict]
+    keyword_frequencies: dict
+    rating_trends: list[dict]
+    developer_reply_impact: dict
+    volume_spikes: list[dict]
+    structured_text: str
+    generated_at: str
+
+
+class FindingsSummarizer:
+    """Synthesizes SQLAnalyst query results into a structured summary
+    that serves as the input to the LLM council.
+
+    The summary must be specific and data-driven — not generic observations.
+    """
+
+    def __init__(self, analyst: SQLAnalyst) -> None:
+        """Initialise with an SQLAnalyst bound to an open DatabaseManager.
 
         Args:
-            output_path: Destination path for the findings JSON file.
+            analyst: Configured SQLAnalyst instance.
         """
-        self.output_path = output_path
+        self._analyst = analyst
 
-    def summarize(self, query_results: Dict[str, List[Any]]) -> Dict[str, Any]:
-        """Produce a structured summary dict from query results."""
-        raise NotImplementedError
+    # ------------------------------------------------------------------
+    # Public methods
+    # ------------------------------------------------------------------
 
-    def save(self, summary: Dict[str, Any]) -> None:
-        """Persist the summary to output_path as JSON."""
-        raise NotImplementedError
+    def generate_summary(self) -> FindingsSummary:
+        """Run all queries and compile into FindingsSummary.
+
+        structured_text format:
+
+        ## Data Overview
+        [total reviews per app, date range, collection timestamp]
+
+        ## Cross-App Patterns
+        [2-3 observations across multiple apps with specific metrics and numbers]
+
+        ## App-Specific Signals
+        ### Fi Money / Jupiter / CRED / PhonePe
+        [2-3 bullets with specific numbers per app]
+
+        ## High-Signal Pain Points (validated by other users)
+        [Top 5 reviews by thumbs_up with rating <= 2]
+
+        ## Developer Response Patterns
+        [Reply rates per app and rating correlation observations]
+
+        Total length: 400-600 words. Every claim is tied to a number.
+
+        Returns:
+            FindingsSummary dataclass with all fields populated.
+        """
+        logger.info("Generating findings summary — running all queries.")
+
+        cross_app = self._analyst.cross_app_summary()
+        high_signal = self._analyst.high_signal_low_rating_reviews(min_thumbs=0)
+        keywords = self._analyst.keyword_frequency()
+        rating_trends = self._analyst.rating_distribution_over_time()
+        reply_impact = self._analyst.developer_reply_impact()
+        volume_spikes = self._analyst.review_volume_by_week()
+
+        structured = self._build_structured_text(
+            cross_app=cross_app,
+            high_signal=high_signal,
+            keywords=keywords,
+            rating_trends=rating_trends,
+            reply_impact=reply_impact,
+        )
+
+        return FindingsSummary(
+            cross_app_stats=cross_app,
+            high_signal_reviews=high_signal,
+            keyword_frequencies=keywords,
+            rating_trends=rating_trends,
+            developer_reply_impact=reply_impact,
+            volume_spikes=volume_spikes,
+            structured_text=structured,
+            generated_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    def save_to_file(
+        self,
+        summary: FindingsSummary,
+        path: str = "outputs/findings_summary.json",
+    ) -> None:
+        """Serialize FindingsSummary to JSON and save to outputs/.
+
+        Args:
+            summary: The FindingsSummary to persist.
+            path:    Destination file path.
+
+        Raises:
+            OSError: If the directory cannot be created or the file cannot be written.
+        """
+        try:
+            dir_path = os.path.dirname(path)
+            if dir_path:
+                os.makedirs(dir_path, exist_ok=True)
+
+            payload = {
+                "generated_at": summary.generated_at,
+                "cross_app_stats": summary.cross_app_stats,
+                "high_signal_reviews": summary.high_signal_reviews,
+                "keyword_frequencies": summary.keyword_frequencies,
+                "rating_trends": summary.rating_trends,
+                "developer_reply_impact": summary.developer_reply_impact,
+                "volume_spikes": summary.volume_spikes,
+                "structured_text": summary.structured_text,
+            }
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(payload, fh, indent=2, ensure_ascii=False)
+
+            logger.info("Findings summary saved to %s", path)
+        except OSError as exc:
+            logger.error("Failed to save findings summary to %s: %s", path, exc)
+            raise
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _build_structured_text(
+        self,
+        cross_app: dict,
+        high_signal: list[dict],
+        keywords: dict,
+        rating_trends: list[dict],
+        reply_impact: dict,
+    ) -> str:
+        """Construct the structured narrative text from query results.
+
+        Args:
+            cross_app:      Output of cross_app_summary().
+            high_signal:    Output of high_signal_low_rating_reviews().
+            keywords:       Output of keyword_frequency().
+            rating_trends:  Output of rating_distribution_over_time().
+            reply_impact:   Output of developer_reply_impact().
+
+        Returns:
+            Formatted multi-section string, 400-600 words.
+        """
+        sections: list[str] = []
+
+        # -- Data Overview -------------------------------------------
+        overview_lines = ["## Data Overview"]
+        if cross_app:
+            for app, stats in sorted(cross_app.items()):
+                overview_lines.append(
+                    f"- {app}: {stats['total_reviews']} reviews, "
+                    f"avg rating {stats['avg_rating']}"
+                )
+        else:
+            overview_lines.append("- No app data available.")
+        sections.append("\n".join(overview_lines))
+
+        # -- Cross-App Patterns ---------------------------------------
+        patterns_lines = ["## Cross-App Patterns"]
+        patterns_lines.extend(self._cross_app_pattern_bullets(cross_app, keywords))
+        sections.append("\n".join(patterns_lines))
+
+        # -- App-Specific Signals -------------------------------------
+        signals_lines = ["## App-Specific Signals"]
+        target_apps = ["Fi Money", "Jupiter", "CRED", "PhonePe"]
+        all_apps = sorted(cross_app.keys())
+        display_apps = target_apps if any(a in cross_app for a in target_apps) else all_apps
+
+        for app in display_apps:
+            if app not in cross_app:
+                continue
+            stats = cross_app[app]
+            signals_lines.append(f"### {app}")
+            signals_lines.append(
+                f"- {stats['total_reviews']} total reviews; "
+                f"{stats['pct_one_star']}% one-star, "
+                f"{stats['pct_five_star']}% five-star."
+            )
+            signals_lines.append(
+                f"- Most common rating: {stats['most_common_rating']}; "
+                f"developer reply rate: {stats['reply_rate_pct']}%."
+            )
+            # Keyword callout for this app
+            kw_hits = [
+                f"'{kw}' ({counts[app]}x)"
+                for kw, counts in keywords.items()
+                if app in counts and counts[app] > 0
+            ]
+            if kw_hits:
+                signals_lines.append(f"- Top keyword mentions: {', '.join(kw_hits[:4])}.")
+
+        sections.append("\n".join(signals_lines))
+
+        # -- High-Signal Pain Points ----------------------------------
+        pain_lines = ["## High-Signal Pain Points (validated by other users)"]
+        top_reviews = sorted(high_signal, key=lambda r: r.get("thumbs_up", 0), reverse=True)[:5]
+        if top_reviews:
+            for rev in top_reviews:
+                snippet = str(rev.get("text", ""))[:150].replace("\n", " ")
+                pain_lines.append(
+                    f"- [{rev['app_name']}] {rev['rating']}/5 stars, "
+                    f"{rev['thumbs_up']} thumbs up: \"{snippet}\""
+                )
+        else:
+            pain_lines.append("- No high-signal low-rating reviews found.")
+        sections.append("\n".join(pain_lines))
+
+        # -- Developer Response Patterns ------------------------------
+        reply_lines = ["## Developer Response Patterns"]
+        if reply_impact:
+            for app, data in sorted(reply_impact.items()):
+                reply_lines.append(
+                    f"- {app}: {data['reply_rate_pct']}% reply rate on low-rated reviews "
+                    f"({data['replied_count']}/{data['total_low_ratings']}). "
+                    f"Avg rating with reply: {data['avg_rating_with_reply']} vs "
+                    f"without: {data['avg_rating_without_reply']}."
+                )
+        else:
+            reply_lines.append("- No low-rated reviews with reply data found.")
+        sections.append("\n".join(reply_lines))
+
+        return "\n\n".join(sections)
+
+    def _cross_app_pattern_bullets(
+        self, cross_app: dict, keywords: dict
+    ) -> list[str]:
+        """Generate 2-3 cross-app pattern bullets grounded in data.
+
+        Args:
+            cross_app: Output of cross_app_summary().
+            keywords:  Output of keyword_frequency().
+
+        Returns:
+            List of bullet strings.
+        """
+        bullets: list[str] = []
+
+        if cross_app:
+            avg_ratings = {app: s["avg_rating"] for app, s in cross_app.items()}
+            if avg_ratings:
+                best_app = max(avg_ratings, key=lambda a: avg_ratings[a])
+                worst_app = min(avg_ratings, key=lambda a: avg_ratings[a])
+                if best_app != worst_app:
+                    bullets.append(
+                        f"- Rating gap: {best_app} leads at {avg_ratings[best_app]} avg "
+                        f"vs {worst_app} at {avg_ratings[worst_app]} avg."
+                    )
+
+            reply_rates = {
+                app: s["reply_rate_pct"]
+                for app, s in cross_app.items()
+                if s["reply_rate_pct"] is not None
+            }
+            if reply_rates:
+                most_responsive = max(reply_rates, key=lambda a: reply_rates[a])
+                bullets.append(
+                    f"- Developer responsiveness: {most_responsive} has the highest "
+                    f"reply rate at {reply_rates[most_responsive]}% on all reviews."
+                )
+
+        if keywords:
+            kw_totals = {
+                kw: sum(counts.values()) for kw, counts in keywords.items()
+            }
+            if kw_totals:
+                top_kw = max(kw_totals, key=lambda k: kw_totals[k])
+                bullets.append(
+                    f"- Most mentioned keyword across all apps: '{top_kw}' "
+                    f"({kw_totals[top_kw]} mentions total)."
+                )
+
+        if not bullets:
+            bullets.append("- Insufficient data for cross-app pattern analysis.")
+
+        return bullets

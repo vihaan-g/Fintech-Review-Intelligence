@@ -12,6 +12,8 @@ def test_project_structure():
 import pytest
 from src.config import Config
 from src.data_collection.database_manager import DatabaseManager
+from src.analysis.sql_analyst import SQLAnalyst
+from src.analysis.findings_summarizer import FindingsSummarizer
 
 
 def test_config_raises_on_missing_keys(monkeypatch):
@@ -52,3 +54,62 @@ def test_pipeline_state_checkpoint():
         db.save_phase_state("collection", "complete", {"count": 100})
         state = db.get_phase_state("collection")
         assert state["status"] == "complete"
+
+
+def test_sql_analyst_methods_return_correct_types():
+    """SQLAnalyst methods return expected types on a seeded database."""
+    with DatabaseManager(db_path=":memory:") as db:
+        db.create_schema()
+        # Seed with minimal data
+        reviews = [
+            {
+                "app_name": "TestApp",
+                "review_id": f"r{i}",
+                "rating": i % 5 + 1,
+                "text": f"review text {i} upi cashback",
+                "date": "2026-01-15T00:00:00",
+                "thumbs_up": i * 2,
+                "has_dev_reply": i % 2,
+                "dev_reply_text": "Thanks" if i % 2 else None,
+                "scraped_at": "2026-04-15T00:00:00",
+                "classification": None,
+            }
+            for i in range(10)
+        ]
+        db.insert_reviews(reviews)
+        analyst = SQLAnalyst(db)
+
+        assert isinstance(analyst.cross_app_summary(), dict)
+        assert isinstance(analyst.keyword_frequency(["upi", "cashback"]), dict)
+        assert isinstance(analyst.high_signal_low_rating_reviews(min_thumbs=0), list)
+        assert isinstance(analyst.rating_distribution_over_time(), list)
+
+
+def test_findings_summarizer_generates_structured_text():
+    """FindingsSummarizer.generate_summary() returns a FindingsSummary
+    with non-empty structured_text."""
+    with DatabaseManager(db_path=":memory:") as db:
+        db.create_schema()
+        reviews = [
+            {
+                "app_name": "TestApp",
+                "review_id": f"r{i}",
+                "rating": (i % 5) + 1,
+                "text": f"test review {i}",
+                "date": "2026-01-15T00:00:00",
+                "thumbs_up": i,
+                "has_dev_reply": 0,
+                "dev_reply_text": None,
+                "scraped_at": "2026-04-15T00:00:00",
+                "classification": None,
+            }
+            for i in range(20)
+        ]
+        db.insert_reviews(reviews)
+        analyst = SQLAnalyst(db)
+        summarizer = FindingsSummarizer(analyst)
+        summary = summarizer.generate_summary()
+
+        assert isinstance(summary.structured_text, str)
+        assert len(summary.structured_text) > 100
+        assert "TestApp" in summary.structured_text

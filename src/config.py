@@ -1,4 +1,5 @@
 """Configuration management: validates required environment variables at startup."""
+import logging
 import os
 
 
@@ -59,4 +60,13 @@ class Config:
         return cls(
             gemini_api_key=values["GEMINI_API_KEY"],
             openrouter_api_key=values["OPENROUTER_API_KEY"],
+        )
+
+    @staticmethod
+    def setup_logging(level: int = logging.INFO) -> None:
+        """Configure root logger. Call once at pipeline startup."""
+        logging.basicConfig(
+            level=level,
+            format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
         )

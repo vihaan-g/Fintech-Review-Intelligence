@@ -1,6 +1,7 @@
 """Manages SQLite database connections, schema, and all read/write operations."""
 import json
 import logging
+import os
 import sqlite3
 from datetime import datetime
 from typing import Any
@@ -51,6 +52,9 @@ class DatabaseManager:
     def __enter__(self) -> "DatabaseManager":
         """Open connection, enable WAL mode, return self."""
         try:
+            db_dir = os.path.dirname(self.db_path)
+            if db_dir:
+                os.makedirs(db_dir, exist_ok=True)
             self._conn = sqlite3.connect(self.db_path)
             self._conn.row_factory = sqlite3.Row
             self._conn.execute("PRAGMA journal_mode=WAL")

@@ -1,19 +1,26 @@
-def test_project_structure():
-    """Confirms the project skeleton was created correctly."""
-    import os
-    assert os.path.exists("src/config.py")
-    assert os.path.exists("src/data_collection/database_manager.py")
-    assert os.path.exists("src/council/council_orchestrator.py")
-    assert os.path.exists(".claude/skills/prompt-optimizer/SKILL.md")
-    assert os.path.exists(".claude/skills/multi-agent-patterns/SKILL.md")
-    assert os.path.exists(".claude/agents/council-orchestrator.md")
-
+import os
 
 import pytest
+
 from src.config import Config
 from src.data_collection.database_manager import DatabaseManager
 from src.analysis.sql_analyst import SQLAnalyst
 from src.analysis.findings_summarizer import FindingsSummarizer
+
+# Ensure outputs/ exists before any test that writes to it
+os.makedirs("outputs", exist_ok=True)
+
+
+def test_project_structure():
+    """Confirms the project skeleton was created correctly."""
+    assert os.path.exists("src/config.py")
+    assert os.path.exists("src/data_collection/database_manager.py")
+    assert os.path.exists("src/council/council_orchestrator.py")
+    assert os.path.exists("src/agents/insight_reporter.py")
+    assert os.path.exists(".claude/skills/prompt-optimizer/SKILL.md")
+    assert os.path.exists(".claude/skills/multi-agent-patterns/SKILL.md")
+    assert os.path.exists(".claude/skills/write-judge-prompt/SKILL.md")
+    assert os.path.exists(".claude/agents/council-orchestrator.md")
 
 
 def test_config_raises_on_missing_keys(monkeypatch):

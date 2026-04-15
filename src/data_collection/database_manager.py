@@ -33,6 +33,14 @@ CREATE TABLE IF NOT EXISTS pipeline_state (
 )
 """
 
+# Optional review fields that default to None when absent from the input dict.
+_OPTIONAL_REVIEW_FIELDS: dict[str, Any] = {
+    "classification": None,
+    "dev_reply_text": None,
+    "thumbs_up": 0,
+    "has_dev_reply": 0,
+}
+
 
 class DatabaseManager:
     """Manages the SQLite database connection, schema, and all read/write operations.
@@ -115,6 +123,10 @@ class DatabaseManager:
     def insert_reviews(self, reviews: list[dict]) -> int:
         """Insert a list of review dicts. Skip duplicates via INSERT OR IGNORE.
 
+        Optional fields (classification, dev_reply_text, thumbs_up,
+        has_dev_reply) are defaulted to None/0 when absent from the input dict,
+        so callers do not need to supply every column.
+
         Returns the number of rows actually inserted.
 
         Args:
@@ -136,9 +148,15 @@ class DatabaseManager:
             (:app_name, :review_id, :rating, :text, :date, :thumbs_up,
              :has_dev_reply, :dev_reply_text, :scraped_at, :classification)
         """
+        # Normalize each row: fill in optional fields without mutating the
+        # original dicts passed by the caller.
+        normalized = [
+            {**_OPTIONAL_REVIEW_FIELDS, **review}
+            for review in reviews
+        ]
         try:
             cursor = self._cursor()
-            cursor.executemany(sql, reviews)
+            cursor.executemany(sql, normalized)
             self._conn.commit()  # type: ignore[union-attr]
         except sqlite3.Error as exc:
             logger.error("Failed to insert reviews: %s", exc)

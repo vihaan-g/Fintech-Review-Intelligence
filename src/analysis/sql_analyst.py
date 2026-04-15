@@ -135,13 +135,10 @@ class SQLAnalyst:
             COUNT(*)                                        AS total_low_ratings,
             SUM(has_dev_reply)                              AS replied_count,
             ROUND(
-                100.0 * SUM(has_dev_reply) / COUNT(*), 2
-            )                                               AS reply_rate_pct,
-            ROUND(
-                AVG(CASE WHEN has_dev_reply = 1 THEN rating END), 2
+                COALESCE(AVG(CASE WHEN has_dev_reply = 1 THEN CAST(rating AS FLOAT) END), 0.0), 2
             )                                               AS avg_rating_with_reply,
             ROUND(
-                AVG(CASE WHEN has_dev_reply = 0 THEN rating END), 2
+                COALESCE(AVG(CASE WHEN has_dev_reply = 0 THEN CAST(rating AS FLOAT) END), 0.0), 2
             )                                               AS avg_rating_without_reply
         FROM reviews
         WHERE rating <= 2
@@ -151,12 +148,17 @@ class SQLAnalyst:
         result: dict[str, dict] = {}
         for row in rows:
             app = row["app_name"]
+            total_low_ratings = int(row["total_low_ratings"])
+            replied_count = int(row["replied_count"] or 0)
+            reply_rate_pct = (
+                (replied_count / total_low_ratings * 100) if total_low_ratings > 0 else 0.0
+            )
             result[app] = {
-                "total_low_ratings": int(row["total_low_ratings"]),
-                "replied_count": int(row["replied_count"] or 0),
-                "reply_rate_pct": float(row["reply_rate_pct"] or 0.0),
-                "avg_rating_with_reply": float(row["avg_rating_with_reply"] or 0.0),
-                "avg_rating_without_reply": float(row["avg_rating_without_reply"] or 0.0),
+                "total_low_ratings": total_low_ratings,
+                "replied_count": replied_count,
+                "reply_rate_pct": round(reply_rate_pct, 2),
+                "avg_rating_with_reply": float(row["avg_rating_with_reply"]),
+                "avg_rating_without_reply": float(row["avg_rating_without_reply"]),
             }
         return result
 
@@ -226,6 +228,10 @@ class SQLAnalyst:
             reply_rate_pct: float,
             most_common_rating: int
         }
+
+        Note: SQLite has no MODE() aggregate function. most_common_rating is
+        computed via a separate subquery using GROUP BY + ORDER BY COUNT(*) DESC
+        LIMIT 1 per app.
         """
         logger.info("Running cross_app_summary...")
         sql = """
@@ -243,6 +249,9 @@ class SQLAnalyst:
         """
         rows = self._execute(sql)
 
+        # SQLite has no MODE() function. most_common_rating is derived via a
+        # per-app subquery: GROUP BY rating ORDER BY COUNT(*) DESC LIMIT 1.
+        # The window function approach below achieves the same result set-wide.
         most_common_sql = """
         SELECT app_name, rating AS most_common_rating
         FROM (

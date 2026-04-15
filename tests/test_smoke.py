@@ -120,3 +120,50 @@ def test_findings_summarizer_generates_structured_text():
         assert isinstance(summary.structured_text, str)
         assert len(summary.structured_text) > 100
         assert "TestApp" in summary.structured_text
+
+
+def test_developer_reply_impact_handles_no_replies():
+    """developer_reply_impact() returns 0.0 for avg_rating_with_reply
+    when no reviews have dev replies — does not raise TypeError."""
+    with DatabaseManager(db_path=":memory:") as db:
+        db.create_schema()
+        reviews = [
+            {
+                "app_name": "TestApp",
+                "review_id": f"r{i}",
+                "rating": 1,
+                "text": "bad app",
+                "date": "2026-01-15T00:00:00",
+                "thumbs_up": 0,
+                "has_dev_reply": 0,
+                "dev_reply_text": None,
+                "scraped_at": "2026-04-15T00:00:00",
+            }
+            for i in range(5)
+        ]
+        db.insert_reviews(reviews)
+        analyst = SQLAnalyst(db)
+        result = analyst.developer_reply_impact()
+        assert "TestApp" in result
+        assert result["TestApp"]["avg_rating_with_reply"] == 0.0
+        assert result["TestApp"]["reply_rate_pct"] == 0.0
+
+
+def test_keyword_frequency_returns_empty_dict_on_no_matches():
+    """keyword_frequency() returns empty dict when no reviews match."""
+    with DatabaseManager(db_path=":memory:") as db:
+        db.create_schema()
+        db.insert_reviews([{
+            "app_name": "TestApp",
+            "review_id": "r1",
+            "rating": 5,
+            "text": "great app",
+            "date": "2026-01-15T00:00:00",
+            "thumbs_up": 0,
+            "has_dev_reply": 0,
+            "dev_reply_text": None,
+            "scraped_at": "2026-04-15T00:00:00",
+        }])
+        analyst = SQLAnalyst(db)
+        result = analyst.keyword_frequency(["zzznomatch"])
+        assert result == {}

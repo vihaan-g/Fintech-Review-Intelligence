@@ -112,9 +112,7 @@ class FindingsSummarizer:
             OSError: If the directory cannot be created or the file cannot be written.
         """
         try:
-            dir_path = os.path.dirname(path)
-            if dir_path:
-                os.makedirs(dir_path, exist_ok=True)
+            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
 
             payload = {
                 "generated_at": summary.generated_at,

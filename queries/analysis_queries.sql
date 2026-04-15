@@ -71,19 +71,21 @@ ORDER BY thumbs_up DESC;
 --   suggests that the replied-to cohort had a somewhat better experience
 --   (or that developers target less-severe negatives). Either way, it is a
 --   customer-success lever that varies widely across Indian fintech apps.
+--
+-- Note: COALESCE is used on AVG(...) to return 0.0 instead of NULL when no
+-- reviews exist for a given has_dev_reply value (e.g. an app with zero
+-- developer replies would produce NULL for avg_rating_with_reply without it).
+-- Division-by-zero for reply_rate_pct is guarded in the Python layer.
 -- -----------------------------------------------------------------------------
 SELECT
     app_name,
     COUNT(*)                                        AS total_low_ratings,
     SUM(has_dev_reply)                              AS replied_count,
     ROUND(
-        100.0 * SUM(has_dev_reply) / COUNT(*), 2
-    )                                               AS reply_rate_pct,
-    ROUND(
-        AVG(CASE WHEN has_dev_reply = 1 THEN rating END), 2
+        COALESCE(AVG(CASE WHEN has_dev_reply = 1 THEN CAST(rating AS FLOAT) END), 0.0), 2
     )                                               AS avg_rating_with_reply,
     ROUND(
-        AVG(CASE WHEN has_dev_reply = 0 THEN rating END), 2
+        COALESCE(AVG(CASE WHEN has_dev_reply = 0 THEN CAST(rating AS FLOAT) END), 0.0), 2
     )                                               AS avg_rating_without_reply
 FROM reviews
 WHERE rating <= 2
@@ -125,6 +127,10 @@ GROUP BY app_name;
 --   an app update or a viral complaint thread. Cross-referencing volume spikes
 --   with average rating drops in the same week gives a precise incident
 --   timeline — useful for the LLM council's root-cause analysis.
+--
+-- NOTE: SQLite strftime('%W') counts weeks from first Monday.
+-- Days in early January before the first Monday appear in week 00.
+-- This is a known SQLite limitation — treat week 00 data with caution.
 -- -----------------------------------------------------------------------------
 SELECT
     app_name,
@@ -149,9 +155,16 @@ ORDER BY app_name ASC, week ASC;
 --   input. A 70% five-star rate is meaningless without knowing the 15% one-star
 --   companion. The reply_rate_pct across all reviews (not just negatives) shows
 --   overall developer engagement. most_common_rating (computed separately via
---   window function) reveals whether the distribution is bimodal (1s and 5s
+--   subquery) reveals whether the distribution is bimodal (1s and 5s
 --   with few 2-3-4s), which is typical for apps with strong advocates and
 --   strong detractors but little middle ground.
+--
+-- Note: SQLite has no MODE() aggregate function. most_common_rating is
+-- computed via a separate subquery per app:
+--   SELECT rating FROM reviews WHERE app_name = ?
+--   GROUP BY rating ORDER BY COUNT(*) DESC LIMIT 1
+-- The window function form below achieves the same result across all apps
+-- in a single query pass.
 -- -----------------------------------------------------------------------------
 SELECT
     app_name,
@@ -165,7 +178,10 @@ SELECT
 FROM reviews
 GROUP BY app_name;
 
--- most_common_rating (window function companion to Query 6):
+-- most_common_rating subquery workaround (no MODE() in SQLite):
+-- Single-app form: SELECT rating FROM reviews WHERE app_name = ?
+--                  GROUP BY rating ORDER BY COUNT(*) DESC LIMIT 1
+-- Multi-app form using window function (used in Python layer):
 SELECT app_name, rating AS most_common_rating
 FROM (
     SELECT

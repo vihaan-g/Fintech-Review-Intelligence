@@ -33,7 +33,7 @@ class CouncilOrchestrator:
     """Coordinates a 4-model LLM council through 3 stages (Karpathy-adapted).
 
     Council members:
-      - Gemini 2.5 Flash (chairman) — Google AI Studio free tier
+      - Gemini 3 Flash Preview (chairman) — Google AI Studio free tier
       - DeepSeek R1 — OpenRouter :free (RL-trained reasoning)
       - Qwen3-235B-A22B — OpenRouter :free (Alibaba MoE)
       - Llama 4 Maverick — OpenRouter :free (Meta Western MoE)
@@ -169,20 +169,20 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
     def default(cls, config: Config) -> "CouncilOrchestrator":
         """Factory: instantiate with the standard 4-model council.
 
-        Chairman: Gemini 2.5 Flash
+        Chairman: Gemini 3 Flash Preview
         Members:
-          - Gemini 2.5 Flash   (provider='gemini',     model_id='gemini-2.5-flash')
-          - DeepSeek R1        (provider='openrouter', model_id='deepseek/deepseek-r1:free')
-          - Qwen3-235B-A22B    (provider='openrouter', model_id='qwen/qwen3-235b-a22b:free')
-          - Llama 4 Maverick   (provider='openrouter', model_id='meta-llama/llama-4-maverick:free')
+          - Gemini 3 Flash Preview (provider='gemini',     model_id='gemini-3-flash-preview')
+          - DeepSeek R1            (provider='openrouter', model_id='deepseek/deepseek-r1:free')
+          - Qwen3-235B-A22B        (provider='openrouter', model_id='qwen/qwen3-235b-a22b:free')
+          - Llama 4 Maverick       (provider='openrouter', model_id='meta-llama/llama-4-maverick:free')
 
         Chairman is Gemini — also participates as a council member in Stage 1.
         The same CouncilMember instance is used for both roles.
         """
         chairman = CouncilMember(
-            name="Gemini 2.5 Flash",
+            name="Gemini 3 Flash (Chairman)",
             provider="gemini",
-            model_id="gemini-2.5-flash",
+            model_id="gemini-3-flash-preview",
             config=config,
         )
         members: list[CouncilMember] = [

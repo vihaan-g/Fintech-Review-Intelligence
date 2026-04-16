@@ -11,9 +11,9 @@ from src.config import Config
 
 logger = logging.getLogger(__name__)
 
-_GEMINI_ENDPOINT = (
+_GEMINI_ENDPOINT_TEMPLATE = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
-    "gemini-2.5-flash:generateContent"
+    "{model_id}:generateContent"
 )
 _OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
@@ -104,15 +104,18 @@ class CouncilMember:
         return _THINK_RE.sub("", text).strip()
 
     async def _call_gemini(self, prompt: str) -> str:
-        """POST to Gemini 2.5 Flash via Google AI Studio.
+        """POST to Gemini via Google AI Studio for any Gemini model.
 
         Endpoint:
             https://generativelanguage.googleapis.com/v1beta/models/
-            gemini-2.5-flash:generateContent?key={api_key}
+            {model_id}:generateContent?key={api_key}
         Body: {"contents": [{"parts": [{"text": prompt}]}]}
         Timeout: 90s. Returns text string.
         """
-        url = f"{_GEMINI_ENDPOINT}?key={self._api_key}"
+        url = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{self.model_id}:generateContent?key={self._api_key}"
+        )
         body = {"contents": [{"parts": [{"text": prompt}]}]}
         async with httpx.AsyncClient(timeout=90.0) as client:
             resp = await client.post(url, json=body)

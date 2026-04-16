@@ -7,6 +7,7 @@ from src.config import Config
 from src.data_collection.database_manager import DatabaseManager
 from src.analysis.sql_analyst import SQLAnalyst
 from src.analysis.findings_summarizer import FindingsSummarizer
+from src.classification.batch_processor import BatchProcessor
 
 # Ensure outputs/ exists before any test that writes to it
 os.makedirs("outputs", exist_ok=True)
@@ -424,3 +425,80 @@ def test_findings_summarizer_save_to_file(tmp_path):
             data = json.load(f)
         assert "structured_text" in data
         assert "generated_at" in data
+
+
+# ---------------------------------------------------------------------------
+# STAGE 4 — ReviewClassifier and BatchProcessor tests
+# ---------------------------------------------------------------------------
+
+def test_review_classifier_parse_failure_never_raises():
+    """_parse_batch_response returns parse_failed results on bad JSON."""
+    import os
+    os.environ.setdefault("GEMINI_API_KEY", "test_key")
+    os.environ.setdefault("OPENROUTER_API_KEY", "test_key")
+    from src.classification.review_classifier import ReviewClassifier
+    config = Config.from_env()
+    classifier = ReviewClassifier(config)
+    results = classifier._parse_batch_response("not valid json", batch_size=3)
+    assert len(results) == 3
+    assert all(r.parse_failed for r in results)
+    assert all(r.confidence == 0.0 for r in results)
+
+
+def test_review_classifier_strips_markdown_fences():
+    """_parse_batch_response handles JSON wrapped in markdown fences."""
+    import os, json
+    os.environ.setdefault("GEMINI_API_KEY", "test_key")
+    os.environ.setdefault("OPENROUTER_API_KEY", "test_key")
+    from src.classification.review_classifier import ReviewClassifier
+    config = Config.from_env()
+    classifier = ReviewClassifier(config)
+    valid_item = {
+        "product_area": "ux",
+        "specific_feature_request": None,
+        "workflow_breakdown": False,
+        "confidence": 0.9,
+    }
+    fenced = f"```json\n{json.dumps([valid_item])}\n```"
+    results = classifier._parse_batch_response(fenced, batch_size=1)
+    assert len(results) == 1
+    assert not results[0].parse_failed
+    assert results[0].product_area == "ux"
+
+
+def test_review_classifier_rejects_invalid_product_area():
+    """_parse_batch_response returns parse_failed when product_area is invalid."""
+    import os, json
+    os.environ.setdefault("GEMINI_API_KEY", "test_key")
+    os.environ.setdefault("OPENROUTER_API_KEY", "test_key")
+    from src.classification.review_classifier import ReviewClassifier
+    config = Config.from_env()
+    classifier = ReviewClassifier(config)
+    bad_item = {
+        "product_area": "not_a_valid_area",
+        "specific_feature_request": None,
+        "workflow_breakdown": False,
+        "confidence": 0.8,
+    }
+    results = classifier._parse_batch_response(
+        json.dumps([bad_item]), batch_size=1
+    )
+    assert results[0].parse_failed
+
+
+def test_batch_processor_skips_if_complete():
+    """BatchProcessor.run() returns immediately when phase is already complete."""
+    import os
+    os.environ.setdefault("GEMINI_API_KEY", "test_key")
+    os.environ.setdefault("OPENROUTER_API_KEY", "test_key")
+    from src.classification.review_classifier import ReviewClassifier
+    from src.classification.batch_processor import BatchProcessor
+    config = Config.from_env()
+    with DatabaseManager(db_path=":memory:") as db:
+        db.create_schema()
+        db.save_phase_state("classification", "complete")
+        classifier = ReviewClassifier(config)
+        processor = BatchProcessor(classifier, db)
+        result = processor.run()
+        assert result.total_classified == 0
+        assert result.batches_processed == 0

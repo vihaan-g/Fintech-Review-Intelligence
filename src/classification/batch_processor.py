@@ -1,31 +1,166 @@
-"""Processes reviews in batches respecting API rate limits."""
+"""Orchestrates classification of all unclassified reviews in the database."""
+import json
 import logging
+import math
+import os
+import time
+from dataclasses import asdict, dataclass
 
 from src.classification.review_classifier import ReviewClassifier
+from src.data_collection.database_manager import DatabaseManager
 
-logger = logging.getLogger(__name__)
+
+@dataclass
+class BatchResult:
+    """Summary of a completed classification run."""
+
+    total_classified: int
+    parse_failures: int
+    batches_processed: int
+    duration_seconds: float
 
 
 class BatchProcessor:
-    """Iterates over unclassified reviews and calls ReviewClassifier in batches."""
+    """Orchestrates classification of all unclassified reviews in the database.
 
-    def __init__(
-        self,
-        classifier: ReviewClassifier,
-        batch_size: int = 50,
-        sleep_seconds: float = 1.0,
-    ) -> None:
-        """Initialize with a classifier and batching parameters.
+    Applies cost-aware-llm-pipeline patterns:
+    - Batches reviews to minimise API calls
+    - Respects Gemini free tier rate limit (15 RPM = 4s sleep between calls)
+    - Checkpoints after each batch so interrupted runs resume correctly
+    - Estimates token cost before starting full run
+    """
 
-        Args:
-            classifier: A ReviewClassifier instance.
-            batch_size: Number of reviews per batch.
-            sleep_seconds: Delay between batches to avoid rate limits.
+    BATCH_SIZE: int = 10
+    SLEEP_BETWEEN_BATCHES: float = 4.1  # keeps under 15 RPM with margin
+
+    def __init__(self, classifier: ReviewClassifier, db: DatabaseManager) -> None:
+        """Initialise processor with injected classifier and database."""
+        self._classifier = classifier
+        self._db = db
+        self._logger = logging.getLogger(self.__class__.__name__)
+
+    def run(self) -> BatchResult:
+        """Classify all unclassified reviews. Resume from checkpoint if interrupted.
+
+        Workflow:
+        1. Check pipeline_state 'classification' — if 'complete', log and return
+           BatchResult with zeros (do not re-classify)
+        2. Estimate total API calls needed: ceil(unclassified_count / BATCH_SIZE)
+           Log: "Classification estimate: {n} batches, ~{minutes}min at 15 RPM"
+        3. Mark pipeline_state 'classification' as 'in_progress'
+        4. Loop: fetch BATCH_SIZE unclassified reviews, classify, save to DB
+        5. Log every 10 batches:
+           "Classified {n}/{total} reviews ({pct:.1f}%) — {failures} parse failures"
+        6. Sleep SLEEP_BETWEEN_BATCHES between each batch
+        7. On completion: mark pipeline_state 'complete' with BatchResult metadata
+        8. Save BatchResult to outputs/classification_complete.json
+        9. Return BatchResult
         """
-        self.classifier = classifier
-        self.batch_size = batch_size
-        self.sleep_seconds = sleep_seconds
+        # Step 1: check if already complete
+        state = self._db.get_phase_state("classification")
+        if state is not None and state.get("status") == "complete":
+            self._logger.info("Classification phase already complete. Skipping.")
+            return BatchResult(
+                total_classified=0,
+                parse_failures=0,
+                batches_processed=0,
+                duration_seconds=0.0,
+            )
 
-    def process(self, reviews: list[dict]) -> list[dict]:
-        """Classify all reviews and return them with classification fields added."""
-        raise NotImplementedError
+        # Step 2: estimate
+        unclassified = self._db.get_unclassified_reviews()
+        unclassified_total = len(unclassified)
+
+        if unclassified_total == 0:
+            self._logger.info("No unclassified reviews found. Nothing to do.")
+            self._db.save_phase_state("classification", "complete")
+            return BatchResult(
+                total_classified=0,
+                parse_failures=0,
+                batches_processed=0,
+                duration_seconds=0.0,
+            )
+
+        n_batches = math.ceil(unclassified_total / self.BATCH_SIZE)
+        est_minutes = (n_batches * self.SLEEP_BETWEEN_BATCHES) / 60.0
+        self._logger.info(
+            "Classification estimate: %d batches, ~%.1fmin at 15 RPM",
+            n_batches, est_minutes,
+        )
+
+        # Step 3: mark in_progress
+        self._db.save_phase_state("classification", "in_progress")
+
+        total_classified = 0
+        parse_failures = 0
+        batches_processed = 0
+        start_time = time.monotonic()
+
+        # Step 4: loop — re-fetch each time so checkpointing works correctly
+        while True:
+            batch = self._db.get_unclassified_reviews(limit=self.BATCH_SIZE)
+            if not batch:
+                break
+
+            results = self._classifier.classify_batch(batch)
+
+            for review, result in zip(batch, results):
+                classification_json = json.dumps({
+                    "product_area": result.product_area,
+                    "specific_feature_request": result.specific_feature_request,
+                    "workflow_breakdown": result.workflow_breakdown,
+                    "confidence": result.confidence,
+                    "parse_failed": result.parse_failed,
+                })
+                self._db.update_classification(review["review_id"], classification_json)
+                total_classified += 1
+                if result.parse_failed:
+                    parse_failures += 1
+
+            batches_processed += 1
+
+            # Step 5: log every 10 batches
+            if batches_processed % 10 == 0:
+                pct = (total_classified / unclassified_total) * 100
+                self._logger.info(
+                    "Classified %d/%d reviews (%.1f%%) \u2014 %d parse failures",
+                    total_classified, unclassified_total, pct, parse_failures,
+                )
+
+            # Step 6: sleep to respect 15 RPM free tier limit
+            time.sleep(self.SLEEP_BETWEEN_BATCHES)
+
+        duration = time.monotonic() - start_time
+        result_summary = BatchResult(
+            total_classified=total_classified,
+            parse_failures=parse_failures,
+            batches_processed=batches_processed,
+            duration_seconds=duration,
+        )
+
+        # Step 7: mark complete
+        self._db.save_phase_state(
+            "classification",
+            "complete",
+            {
+                "total_classified": total_classified,
+                "parse_failures": parse_failures,
+                "batches_processed": batches_processed,
+            },
+        )
+
+        # Step 8: save to file
+        self._save_result(result_summary)
+
+        return result_summary
+
+    def _save_result(self, result: BatchResult) -> None:
+        """Serialize BatchResult to outputs/classification_complete.json."""
+        os.makedirs("outputs", exist_ok=True)
+        output_path = "outputs/classification_complete.json"
+        try:
+            with open(output_path, "w", encoding="utf-8") as f:
+                json.dump(asdict(result), f, indent=2)
+            self._logger.info("BatchResult saved to %s", output_path)
+        except OSError as exc:
+            self._logger.error("Failed to save BatchResult: %s", exc)

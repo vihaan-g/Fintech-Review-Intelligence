@@ -1,6 +1,7 @@
 """Wraps a single LLM council member and its API call logic."""
 import logging
-from typing import Dict
+
+from src.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -11,25 +12,28 @@ class CouncilMember:
     def __init__(
         self,
         name: str,
+        provider: str,
         model_id: str,
-        api_key: str,
-        base_url: str,
-        timeout: float = 60.0,
+        config: Config,
     ) -> None:
-        """Initialize a council member.
+        """Initialise a council member. Extracts API key from config based on provider.
+
+        provider must be one of: 'gemini', 'openrouter'
 
         Args:
             name: Human-readable label (e.g. 'deepseek-r1').
+            provider: API provider — 'gemini' or 'openrouter'.
             model_id: API model identifier string.
-            api_key: Authentication key for the model's API.
-            base_url: Base URL for the model's HTTP endpoint.
-            timeout: Request timeout in seconds.
+            config: Validated Config instance.
         """
         self.name = name
+        self.provider = provider
         self.model_id = model_id
-        self.api_key = api_key
-        self.base_url = base_url
-        self.timeout = timeout
+        self._api_key = (
+            config.gemini_api_key
+            if provider == "gemini"
+            else config.openrouter_api_key
+        )
 
     def generate(self, prompt: str) -> str:
         """Send a prompt and return the model's text response."""

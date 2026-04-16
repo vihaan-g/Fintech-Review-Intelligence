@@ -178,6 +178,20 @@ SELECT
 FROM reviews
 GROUP BY app_name;
 
+-- -----------------------------------------------------------------------------
+-- Query: Most Common Rating (per cross_app_summary)
+-- -----------------------------------------------------------------------------
+-- What it measures:
+--   The modal (most frequently occurring) rating per app.
+--
+-- Why it matters for product analysis:
+--   Average rating can be misleading with bimodal distributions
+--   (e.g. many 1-stars and many 5-stars). The mode reveals which end of
+--   the distribution dominates user sentiment.
+--
+-- SQLite limitation: No MODE() aggregate function. This subquery implements
+--   the equivalent via GROUP BY + ORDER BY COUNT(*) DESC + LIMIT 1.
+-- -----------------------------------------------------------------------------
 -- most_common_rating subquery workaround (no MODE() in SQLite):
 -- Single-app form: SELECT rating FROM reviews WHERE app_name = ?
 --                  GROUP BY rating ORDER BY COUNT(*) DESC LIMIT 1

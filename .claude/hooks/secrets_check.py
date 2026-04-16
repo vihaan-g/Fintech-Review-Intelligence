@@ -5,7 +5,7 @@ import re
 import sys
 
 PATTERNS = [
-    r'AIza[0-9A-Za-z\-_]{35}',
+    r'AIza[0-9A-Za-z_-]{35}',
     r'sk-[a-zA-Z0-9]{48}',
     r'gsk_[a-zA-Z0-9]{52}',
 ]

@@ -72,3 +72,6 @@ Portfolio project targeting APM/BA roles at Indian fintech startups.
 - Qwen3-235B: higher latency than other council members — set a 90s timeout
 - SQLite WAL mode required for concurrent reads during analysis phases
 - Stage 2 prompt must constrain output length or Llama 4 Maverick gets verbose
+- Qwen3-235B responses may include <think>...</think> reasoning blocks
+  before the actual answer. Strip these before parsing council output:
+  use re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL)

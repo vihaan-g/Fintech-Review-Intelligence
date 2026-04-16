@@ -1,6 +1,7 @@
 """Processes reviews in batches respecting API rate limits."""
 import logging
-from typing import List, Dict
+
+from src.classification.review_classifier import ReviewClassifier
 
 logger = logging.getLogger(__name__)
 
@@ -10,7 +11,7 @@ class BatchProcessor:
 
     def __init__(
         self,
-        classifier: object,
+        classifier: ReviewClassifier,
         batch_size: int = 50,
         sleep_seconds: float = 1.0,
     ) -> None:
@@ -25,6 +26,6 @@ class BatchProcessor:
         self.batch_size = batch_size
         self.sleep_seconds = sleep_seconds
 
-    def process(self, reviews: List[Dict]) -> List[Dict]:
+    def process(self, reviews: list[dict]) -> list[dict]:
         """Classify all reviews and return them with classification fields added."""
         raise NotImplementedError

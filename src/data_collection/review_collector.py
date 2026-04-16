@@ -1,7 +1,7 @@
 """Scrapes Play Store reviews for Indian fintech apps and stores them in SQLite."""
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 
 from google_play_scraper import Sort, reviews

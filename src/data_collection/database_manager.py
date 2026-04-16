@@ -95,6 +95,19 @@ class DatabaseManager:
             self._conn.close()
             self._conn = None
 
+    @property
+    def conn(self) -> sqlite3.Connection:
+        """Expose the underlying connection for read-only inspection (e.g. tests).
+
+        Raises:
+            RuntimeError: If called outside a context manager block.
+        """
+        if self._conn is None:
+            raise RuntimeError(
+                "DatabaseManager must be used as a context manager (with statement)."
+            )
+        return self._conn
+
     def _cursor(self) -> sqlite3.Cursor:
         """Return a cursor, raising RuntimeError if not inside a context block."""
         if self._conn is None:
@@ -111,10 +124,29 @@ class DatabaseManager:
           - pipeline_state: tracks completion status of each pipeline phase.
         """
         try:
-            cursor = self._cursor()
+            conn = self._conn  # unwrap Optional once for the whole block
+            assert conn is not None
+            cursor = conn.cursor()
             cursor.execute(_CREATE_REVIEWS)
             cursor.execute(_CREATE_PIPELINE_STATE)
-            self._conn.commit()  # type: ignore[union-attr]
+            # Performance indexes for analytical queries
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_reviews_app_name "
+                "ON reviews(app_name)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_reviews_date "
+                "ON reviews(date)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_reviews_rating_thumbs "
+                "ON reviews(rating, thumbs_up)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_reviews_classification "
+                "ON reviews(classification)"
+            )
+            conn.commit()
             logger.info("Schema verified / created.")
         except sqlite3.Error as exc:
             logger.error("Failed to create schema: %s", exc)

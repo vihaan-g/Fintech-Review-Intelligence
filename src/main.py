@@ -15,6 +15,8 @@ import os
 from dotenv import load_dotenv
 
 from src.config import Config
+from src.council.council_orchestrator import CouncilOrchestrator  # noqa: F401
+from src.analysis.findings_summarizer import FindingsSummarizer  # noqa: F401
 
 
 def setup_logging() -> None:
@@ -58,6 +60,9 @@ def main() -> None:
         args.dry_run,
         args.phase or "all",
     )
+
+    # Phase 4: Council — wired in Stage 6 (full integration)
+    # CouncilOrchestrator.default(config).run_sync(findings_summary.structured_text)
 
     # Phase implementations will be wired here in Stage 6
     logger.info("Pipeline complete")

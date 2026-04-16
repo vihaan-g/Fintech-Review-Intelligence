@@ -8,6 +8,8 @@ from src.data_collection.database_manager import DatabaseManager
 from src.analysis.sql_analyst import SQLAnalyst
 from src.analysis.findings_summarizer import FindingsSummarizer
 from src.classification.batch_processor import BatchProcessor
+from src.council.council_member import CouncilMember, MemberResponse
+from src.council.council_orchestrator import CouncilOrchestrator
 
 # Ensure outputs/ exists before any test that writes to it
 os.makedirs("outputs", exist_ok=True)
@@ -502,3 +504,72 @@ def test_batch_processor_skips_if_complete():
         result = processor.run()
         assert result.total_classified == 0
         assert result.batches_processed == 0
+
+
+# ---------------------------------------------------------------------------
+# STAGE 5 — CouncilMember and CouncilOrchestrator tests
+# ---------------------------------------------------------------------------
+
+def test_council_member_strips_think_tags():
+    """CouncilMember._strip_think_tags() removes think blocks correctly."""
+    import os
+    os.environ.setdefault("GEMINI_API_KEY", "test_key")
+    os.environ.setdefault("OPENROUTER_API_KEY", "test_key")
+    config = Config.from_env()
+    member = CouncilMember(
+        name="Test",
+        provider="gemini",
+        model_id="gemini-2.5-flash",
+        config=config,
+    )
+    raw = "<think>some reasoning here</think>Actual insight about CRED."
+    result = member._strip_think_tags(raw)
+    assert "think" not in result
+    assert "Actual insight about CRED." in result
+
+
+def test_council_member_strips_multiline_think_tags():
+    """_strip_think_tags() handles multiline think blocks."""
+    import os
+    os.environ.setdefault("GEMINI_API_KEY", "test_key")
+    os.environ.setdefault("OPENROUTER_API_KEY", "test_key")
+    config = Config.from_env()
+    member = CouncilMember("Test", "gemini", "gemini-2.5-flash", config)
+    raw = "<think>\nline 1\nline 2\n</think>\nFinal answer."
+    result = member._strip_think_tags(raw)
+    assert result.strip() == "Final answer."
+
+
+def test_council_orchestrator_default_has_four_members():
+    """CouncilOrchestrator.default() creates a council with 4 members."""
+    import os
+    os.environ.setdefault("GEMINI_API_KEY", "test_key")
+    os.environ.setdefault("OPENROUTER_API_KEY", "test_key")
+    config = Config.from_env()
+    orchestrator = CouncilOrchestrator.default(config)
+    assert len(orchestrator.members) == 4
+
+
+def test_council_orchestrator_anonymization_map():
+    """_build_stage2_prompt() produces a shuffled anonymization map
+    with 4 distinct labels (A, B, C, D)."""
+    import os
+    os.environ.setdefault("GEMINI_API_KEY", "test_key")
+    os.environ.setdefault("OPENROUTER_API_KEY", "test_key")
+    config = Config.from_env()
+    orchestrator = CouncilOrchestrator.default(config)
+    fake_responses = [
+        MemberResponse(
+            member_name=f"Member{i}",
+            model_id=f"model-{i}",
+            raw_response=f"insight {i}",
+            clean_response=f"insight {i}",
+            timestamp="2026-04-16T00:00:00",
+            duration_ms=100,
+        )
+        for i in range(4)
+    ]
+    labels = ["Response A", "Response B", "Response C", "Response D"]
+    prompt = orchestrator._build_stage2_prompt(fake_responses, labels)
+    for label in labels:
+        assert label in prompt

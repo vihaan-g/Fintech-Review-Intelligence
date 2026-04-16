@@ -573,3 +573,77 @@ def test_council_orchestrator_anonymization_map():
     prompt = orchestrator._build_stage2_prompt(fake_responses, labels)
     for label in labels:
         assert label in prompt
+
+
+# ---------------------------------------------------------------------------
+# STAGE 6 — InsightReporter tests
+# ---------------------------------------------------------------------------
+
+def test_insight_reporter_raises_on_empty_synthesis():
+    """InsightReporter raises ValueError if stage3_synthesis is too short."""
+    from src.agents.insight_reporter import InsightReporter
+    with pytest.raises(ValueError, match="stage3_synthesis"):
+        InsightReporter.from_dicts(
+            council_dict={"stage3_synthesis": "too short"},
+            summary_dict={
+                "structured_text": "some text",
+                "cross_app_stats": {},
+                "high_signal_reviews": [],
+            },
+        )
+
+
+def test_insight_reporter_generates_all_files(tmp_path, monkeypatch):
+    """InsightReporter.generate_all() writes all 3 output files."""
+    from src.agents.insight_reporter import InsightReporter
+    monkeypatch.chdir(tmp_path)
+    os.makedirs("outputs", exist_ok=True)
+    long_synthesis = "A" * 200  # over 100 char threshold
+    reporter = InsightReporter.from_dicts(
+        council_dict={
+            "stage3_synthesis": long_synthesis,
+            "stage2_gap_analysis": "some gap analysis",
+            "generated_at": "2026-04-16T00:00:00",
+        },
+        summary_dict={
+            "structured_text": "## Data Overview\nTestApp: 100 reviews",
+            "cross_app_stats": {
+                "TestApp": {
+                    "total_reviews": 100,
+                    "avg_rating": 3.5,
+                    "pct_one_star": 10.0,
+                    "pct_five_star": 25.0,
+                    "reply_rate_pct": 5.0,
+                }
+            },
+            "high_signal_reviews": [],
+            "generated_at": "2026-04-16T00:00:00",
+        },
+    )
+    result = reporter.generate_all()
+    assert os.path.exists(result.report_path)
+    assert os.path.exists(result.linkedin_path)
+    assert os.path.exists(result.readme_path)
+    assert result.word_count > 0
+
+
+def test_main_dry_run_completes_without_api_calls():
+    """python src/main.py --dry-run completes all phases without errors."""
+    import subprocess
+    import sys
+    project_root = "/Users/vihaan/Documents/Personal/CV/Fintech-Review-Intelligence"
+    env = os.environ.copy()
+    env["GEMINI_API_KEY"] = "test_key"
+    env["OPENROUTER_API_KEY"] = "test_key"
+    env["PYTHONPATH"] = project_root
+    result = subprocess.run(
+        [sys.executable, "src/main.py", "--dry-run"],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=60,
+        cwd=project_root,
+    )
+    assert result.returncode == 0, (
+        f"main.py --dry-run failed:\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}"
+    )

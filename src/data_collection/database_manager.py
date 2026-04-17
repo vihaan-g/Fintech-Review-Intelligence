@@ -3,7 +3,7 @@ import json
 import logging
 import os
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -66,6 +66,8 @@ class DatabaseManager:
             self._conn = sqlite3.connect(self.db_path)
             self._conn.row_factory = sqlite3.Row
             self._conn.execute("PRAGMA journal_mode=WAL")
+            # L8: NORMAL is safe with WAL mode and avoids per-write fsync overhead
+            self._conn.execute("PRAGMA synchronous=NORMAL")
             self._conn.commit()
             logger.debug("Opened SQLite connection: %s", self.db_path)
         except sqlite3.Error as exc:
@@ -170,8 +172,6 @@ class DatabaseManager:
         if not reviews:
             return 0
 
-        count_before = self._count_all_reviews()
-
         sql = """
         INSERT OR IGNORE INTO reviews
             (app_name, review_id, rating, text, date, thumbs_up,
@@ -190,25 +190,14 @@ class DatabaseManager:
             cursor = self._cursor()
             cursor.executemany(sql, normalized)
             self._conn.commit()  # type: ignore[union-attr]
+            # H11: use rowcount instead of two COUNT(*) queries — one round-trip.
+            inserted = cursor.rowcount
         except sqlite3.Error as exc:
             logger.error("Failed to insert reviews: %s", exc)
             raise
 
-        count_after = self._count_all_reviews()
-        inserted = count_after - count_before
         logger.debug("Inserted %d new reviews (%d skipped).", inserted, len(reviews) - inserted)
         return inserted
-
-    def _count_all_reviews(self) -> int:
-        """Return total row count in the reviews table (internal helper)."""
-        try:
-            cursor = self._cursor()
-            cursor.execute("SELECT COUNT(*) FROM reviews")
-            row = cursor.fetchone()
-            return row[0] if row else 0
-        except sqlite3.Error as exc:
-            logger.error("Failed to count reviews: %s", exc)
-            raise
 
     def get_review_count(self, app_name: str | None = None) -> int:
         """Return total review count. If app_name provided, count for that app only.
@@ -243,7 +232,7 @@ class DatabaseManager:
             status: One of 'pending', 'in_progress', 'complete', 'failed'.
             metadata: Optional dict of phase-specific data, stored as JSON.
         """
-        updated_at = datetime.now().isoformat()
+        updated_at = datetime.now(timezone.utc).isoformat()
         metadata_json = json.dumps(metadata) if metadata is not None else None
 
         sql = """
@@ -289,6 +278,29 @@ class DatabaseManager:
             except (json.JSONDecodeError, TypeError) as exc:
                 logger.warning("Could not parse metadata JSON for phase '%s': %s", phase, exc)
         return result
+
+    def execute_read(self, sql: str, params: tuple = ()) -> list[dict]:
+        """Execute a read-only parameterized SQL query and return rows as list[dict].
+
+        Public interface for read access without exposing the internal cursor.
+
+        Args:
+            sql:    SELECT query with ? placeholders.
+            params: Tuple of bind values.
+
+        Returns:
+            List of row dicts.
+
+        Raises:
+            sqlite3.Error: On any database error.
+        """
+        try:
+            cursor = self._cursor()
+            cursor.execute(sql, params)
+            return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.Error as exc:
+            logger.error("execute_read failed: %s", exc)
+            raise
 
     def get_unclassified_reviews(self, limit: int | None = None) -> list[dict]:
         """Return reviews where classification IS NULL, up to limit rows.

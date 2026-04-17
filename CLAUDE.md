@@ -23,7 +23,7 @@ Portfolio project targeting APM/BA roles at Indian fintech startups.
 - Stage 2: All 4 models review each other with identities anonymized
   (responses labelled A/B/C/D — no model knows who wrote what)
 - Stage 3: Gemini chairman synthesizes Stage 1 outputs + Stage 2 gap analysis
-- Total API calls per council run: ~13 (well within all free tier limits)
+- Total API calls per council run: ~6 (4 Stage 1 + 1 Stage 2 + 1 Stage 3; well within all free tier limits)
 
 ## Pipeline Phases
 1. Data Collection    — ReviewCollector, DatabaseManager

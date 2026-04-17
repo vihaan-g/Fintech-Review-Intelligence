@@ -7,10 +7,11 @@ under 100 characters.
 """
 import logging
 import os
-import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
+
+from src.utils import DictProxy, extract_top_findings
 
 logger = logging.getLogger(__name__)
 
@@ -72,13 +73,12 @@ class InsightReporter:
         Returns an InsightReporter instance ready to call generate_all().
         """
         # Build lightweight proxy objects with the attributes we need
-        council_obj = _DictProxy(
+        council_obj = DictProxy(
             stage3_synthesis=council_dict.get("stage3_synthesis", ""),
             stage2_gap_analysis=council_dict.get("stage2_gap_analysis", ""),
             generated_at=council_dict.get("generated_at", datetime.now(timezone.utc).isoformat()),
-            total_reviews=council_dict.get("total_reviews", 0),
         )
-        summary_obj = _DictProxy(
+        summary_obj = DictProxy(
             cross_app_stats=summary_dict.get("cross_app_stats", {}),
             high_signal_reviews=summary_dict.get("high_signal_reviews", []),
             structured_text=summary_dict.get("structured_text", ""),
@@ -237,7 +237,7 @@ class InsightReporter:
         total = sum(s.get("total_reviews", 0) for s in cross_app.values())
 
         synthesis = self._council.stage3_synthesis or ""
-        findings = self._extract_top_findings(synthesis, n=2)
+        findings = extract_top_findings(synthesis, n=2)
         lead = findings[0] if findings else "See the full report for findings."
         support = findings[1] if len(findings) > 1 else ""
 
@@ -289,7 +289,7 @@ class InsightReporter:
         synthesis = self._council.stage3_synthesis
 
         # Extract top 3 findings as bullets from synthesis
-        finding_bullets = self._extract_top_findings(synthesis, n=3)
+        finding_bullets = extract_top_findings(synthesis, n=3)
 
         lines = [
             "# fintech-review-intelligence",
@@ -352,59 +352,5 @@ class InsightReporter:
             fh.write(content)
         return path
 
-    def _extract_top_findings(self, synthesis: str, n: int = 3) -> list[str]:
-        """Extract top N finding lines from the synthesis text.
-
-        Primary: lines starting with ``**Finding`` or ``**Insight``.
-        Secondary: markdown headings like ``### Finding`` / ``## Key Findings``
-                   / numeric-prefixed lines (``1.``, ``2)``).
-        Fallback: first N non-empty sentences (>=20 chars) with a period.
-        Final fallback: a single generic pointer line (never empty).
-        """
-        findings: list[str] = []
-
-        def _clean(line: str) -> str:
-            stripped = line.strip().lstrip("#").strip().lstrip("*").strip()
-            # Strip leading "1." / "1)" style numbering
-            stripped = re.sub(r"^\d+[.)]\s*", "", stripped)
-            if ":" in stripped:
-                head, tail = stripped.split(":", 1)
-                if len(head) <= 40:
-                    stripped = tail.strip()
-            return stripped.strip("*").strip()
-
-        # Primary pass: structured markers
-        for line in synthesis.splitlines():
-            stripped = line.strip()
-            if (
-                stripped.startswith("**Finding")
-                or stripped.startswith("**Insight")
-                or stripped.startswith("### Finding")
-                or stripped.startswith("### Insight")
-                or re.match(r"^\d+[.)]\s", stripped)
-            ):
-                cleaned = _clean(stripped)
-                if cleaned and len(cleaned) > 10:
-                    findings.append(cleaned)
-            if len(findings) >= n:
-                break
-
-        # Fallback: take first N sentences from synthesis
-        if not findings:
-            flat = synthesis.replace("\n", " ")
-            sentences = [s.strip() for s in flat.split(".") if len(s.strip()) > 20]
-            findings = [s + "." for s in sentences[:n]]
-
-        return findings or ["See findings_report.md for the full analysis."]
 
 
-class _DictProxy:
-    """Lightweight attribute-access wrapper around a plain dict.
-
-    Used by InsightReporter.from_dicts() to avoid complex nested dataclass
-    deserialisation while keeping the class interface clean.
-    """
-
-    def __init__(self, **kwargs: Any) -> None:
-        for key, value in kwargs.items():
-            setattr(self, key, value)

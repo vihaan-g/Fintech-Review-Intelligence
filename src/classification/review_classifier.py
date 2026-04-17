@@ -1,6 +1,7 @@
 """Classifies Play Store reviews using Gemini 2.5 Flash."""
 import json
 import logging
+import random
 import re
 import time
 from dataclasses import dataclass
@@ -13,9 +14,10 @@ _GEMINI_ENDPOINT = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
     "gemini-2.5-flash:generateContent"
 )
-_MAX_RETRIES = 3
+_MAX_RETRIES = 5
 _RETRYABLE_STATUS_CODES = frozenset([429, 500, 502, 503])
 _REQUEST_TIMEOUT_SECONDS = 30.0
+_BACKOFF_BASE_SECONDS = 10.0
 
 
 class GeminiQuotaExhaustedError(RuntimeError):
@@ -24,6 +26,14 @@ class GeminiQuotaExhaustedError(RuntimeError):
     Signals that the free-tier daily quota (1,500 req/day) is likely hit.
     BatchProcessor catches this, checkpoints progress, and exits cleanly
     so the run can resume tomorrow.
+    """
+
+
+class GeminiAuthError(RuntimeError):
+    """Raised when Gemini returns 400/401/403 — fatal auth/config failure.
+
+    Never caught by classify_batch; always propagates to the caller so a bad
+    key is surfaced immediately rather than producing 10k silent parse failures.
     """
 
 
@@ -44,6 +54,7 @@ class ReviewClassifier:
 
     Uses prompt-optimizer output for classification prompts.
     Never raises on parse failure — returns low-confidence result instead.
+    Auth errors (GeminiAuthError) propagate immediately without swallowing.
     All API calls go through _call_gemini() for testability.
     """
 
@@ -58,9 +69,10 @@ class ReviewClassifier:
         "- transactions \u2014 payments, UPI, transfers, bill pay, recharges\n"
         "- support      \u2014 customer care, chat support, complaint resolution\n"
         "- performance  \u2014 crashes, slowness, bugs, error messages, login failures\n"
-        "- trust        \u2014 security, fraud, scam, data privacy, verification failures\n\n"
+        "- trust        \u2014 security, fraud, scam, data privacy, verification failures\n"
+        "- other        \u2014 unrelated to the app (phone issues, wrong app, etc.)\n\n"
         "RULES:\n"
-        "1. product_area MUST be one of the six values listed \u2014 no other values are valid\n"
+        "1. product_area MUST be one of the seven values listed \u2014 no other values are valid\n"
         "2. specific_feature_request: extract verbatim only if the reviewer explicitly names "
         "a feature they want; null if no feature request is stated \u2014 do not invent or infer\n"
         "3. workflow_breakdown: true ONLY when the reviewer describes a specific failed sequence "
@@ -104,7 +116,7 @@ class ReviewClassifier:
 
     VALID_PRODUCT_AREAS: frozenset[str] = frozenset([
         "onboarding", "ux", "transactions",
-        "support", "performance", "trust",
+        "support", "performance", "trust", "other",
     ])
 
     def __init__(self, config: Config) -> None:
@@ -117,8 +129,9 @@ class ReviewClassifier:
 
         Sends all reviews as a JSON array in one prompt.
         Expects a JSON array response of the same length.
-        On any parse failure: returns list of parse_failed=True results
-        for the entire batch. Never raises. Always returns same length as input.
+        On parse failure: returns list of parse_failed=True results for the batch.
+        GeminiQuotaExhaustedError and GeminiAuthError always propagate.
+        Never raises for other errors. Always returns same length as input.
 
         Args:
             reviews: list of review dicts with at minimum a 'text' field
@@ -133,9 +146,10 @@ class ReviewClassifier:
         try:
             raw = self._call_gemini(prompt)
         except GeminiQuotaExhaustedError:
-            # Bubble up: BatchProcessor catches this, checkpoints, and exits.
             raise
-        except Exception as exc:  # noqa: BLE001 — we never want to raise on bad JSON
+        except GeminiAuthError:
+            raise  # fatal — surfaces bad key immediately, never silent
+        except Exception as exc:  # noqa: BLE001
             self._logger.warning("Gemini API call failed for batch of %d: %s", len(reviews), exc)
             return [self._make_parse_failed_result() for _ in reviews]
 
@@ -144,25 +158,27 @@ class ReviewClassifier:
     def _call_gemini(self, prompt: str) -> str:
         """Make a single synchronous HTTP POST to Gemini 2.5 Flash.
 
-        Endpoint:
-            https://generativelanguage.googleapis.com/v1beta/models/
-            gemini-2.5-flash:generateContent?key={api_key}
-
-        Request body:
-            {"contents": [{"parts": [{"text": prompt}]}]}
+        Includes generationConfig with temperature=0.1 and responseMimeType
+        "application/json" to reduce prose wrapping and non-JSON output.
 
         Returns the model's text response as a raw string.
-        Raises httpx.HTTPStatusError on non-200 responses after retries exhausted.
+        Raises GeminiAuthError on 400/401/403 (fatal, no retry).
+        Raises GeminiQuotaExhaustedError when all retries see 429.
+        Raises httpx.HTTPStatusError for other non-retryable status codes.
         Timeout: 30 seconds.
         """
-        # Pass the API key via the official x-goog-api-key header rather than
-        # ?key=… in the URL — keeps the secret out of access logs and history.
         url = _GEMINI_ENDPOINT
         headers = {"x-goog-api-key": self._api_key}
-        body = {"contents": [{"parts": [{"text": prompt}]}]}
+        body = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "temperature": 0.1,
+                "responseMimeType": "application/json",
+            },
+        }
         last_exc: Exception = RuntimeError("All retries exhausted")
-
         saw_429 = False
+
         for attempt in range(_MAX_RETRIES):
             try:
                 response = httpx.post(
@@ -170,16 +186,43 @@ class ReviewClassifier:
                 )
                 response.raise_for_status()
                 data = response.json()
-                return data["candidates"][0]["content"]["parts"][0]["text"]
+
+                # Prompt-level block before any candidate is generated
+                block_reason = data.get("promptFeedback", {}).get("blockReason")
+                if block_reason:
+                    self._logger.warning(
+                        "Gemini blocked prompt (blockReason=%s) — returning empty", block_reason
+                    )
+                    return ""
+
+                candidates = data.get("candidates", [])
+                if not candidates:
+                    self._logger.warning("Gemini returned no candidates")
+                    return ""
+
+                candidate = candidates[0]
+                finish_reason = candidate.get("finishReason", "STOP")
+                if finish_reason == "SAFETY":
+                    self._logger.warning("Gemini safety filter triggered — returning empty")
+                    return ""
+
+                return str(candidate["content"]["parts"][0]["text"])
+
             except httpx.HTTPStatusError as exc:
-                if exc.response.status_code == 429:
+                status = exc.response.status_code
+                if status in {400, 401, 403}:
+                    raise GeminiAuthError(
+                        f"Gemini auth/request error HTTP {status} — check GEMINI_API_KEY. "
+                        f"Body: {exc.response.text[:200]}"
+                    ) from exc
+                if status == 429:
                     saw_429 = True
-                if exc.response.status_code not in _RETRYABLE_STATUS_CODES:
+                if status not in _RETRYABLE_STATUS_CODES:
                     raise
                 last_exc = exc
                 self._logger.warning(
                     "Retryable HTTP %d on attempt %d/%d",
-                    exc.response.status_code, attempt + 1, _MAX_RETRIES,
+                    status, attempt + 1, _MAX_RETRIES,
                 )
             except (httpx.ConnectError, httpx.ReadTimeout, httpx.TimeoutException) as exc:
                 last_exc = exc
@@ -188,10 +231,25 @@ class ReviewClassifier:
                 )
 
             if attempt < _MAX_RETRIES - 1:
-                time.sleep(2 ** attempt)
+                retry_after_header = (
+                    last_exc.response.headers.get("Retry-After")
+                    if isinstance(last_exc, httpx.HTTPStatusError)
+                    else None
+                )
+                base_delay = _BACKOFF_BASE_SECONDS * (2 ** attempt)
+                jitter = random.uniform(0, 2)
+                delay = base_delay + jitter
+                if retry_after_header:
+                    try:
+                        delay = max(delay, float(retry_after_header))
+                    except ValueError:
+                        pass
+                self._logger.info(
+                    "Sleeping %.1fs before retry %d/%d",
+                    delay, attempt + 2, _MAX_RETRIES,
+                )
+                time.sleep(delay)
 
-        # If every retry saw a 429, surface the daily-quota case explicitly
-        # so the BatchProcessor can checkpoint cleanly and exit.
         if saw_429:
             raise GeminiQuotaExhaustedError(
                 "Gemini returned 429 on every retry — daily quota likely "
@@ -201,11 +259,7 @@ class ReviewClassifier:
         raise last_exc
 
     def _build_batch_prompt(self, reviews: list[dict]) -> str:
-        """Build the batch classification prompt for a list of reviews.
-
-        Inserts reviews as a numbered JSON array into BATCH_CLASSIFICATION_PROMPT.
-        Returns the complete prompt string ready to send to Gemini.
-        """
+        """Build the batch classification prompt for a list of reviews."""
         numbered = [
             {"n": i + 1, "text": r.get("text", "")}
             for i, r in enumerate(reviews)
@@ -222,11 +276,11 @@ class ReviewClassifier:
         """Parse Gemini's JSON array response into ClassificationResult list.
 
         Steps:
-        1. Strip <think>...</think> blocks (Qwen3 safety — note from CLAUDE.md)
-        2. Strip markdown fences if present (```json ... ```)
+        1. Strip <think>...</think> blocks
+        2. Extract JSON array: bracket-slice first (`[`...`]`), fence regex fallback
         3. Parse JSON array
-        4. Validate each item: required fields present, product_area in VALID_PRODUCT_AREAS
-        5. On any failure at any step: return list of parse_failed=True results
+        4. Validate each item: required fields, product_area in VALID_PRODUCT_AREAS
+        5. On any failure: return list of parse_failed=True results
 
         Never raises. Always returns list of length batch_size.
         """
@@ -236,10 +290,17 @@ class ReviewClassifier:
             # Step 1: strip <think>...</think> blocks
             cleaned = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
 
-            # Step 2: strip markdown fences
-            fence_match = re.match(r"^```(?:json)?\s*(.*?)\s*```$", cleaned, re.DOTALL)
-            if fence_match:
-                cleaned = fence_match.group(1).strip()
+            # Step 2: extract JSON array — bracket-slice first, fence regex fallback.
+            # Bracket-slicing handles preamble text like "Here is the JSON array:"
+            # that anchored fence regexes fail on.
+            bracket_start = cleaned.find("[")
+            bracket_end = cleaned.rfind("]")
+            if bracket_start != -1 and bracket_end != -1 and bracket_end > bracket_start:
+                cleaned = cleaned[bracket_start:bracket_end + 1]
+            else:
+                fence_match = re.search(r"```(?:json)?\s*(.*?)\s*```", cleaned, re.DOTALL)
+                if fence_match:
+                    cleaned = fence_match.group(1).strip()
 
             # Step 3: parse JSON
             parsed = json.loads(cleaned)
@@ -277,7 +338,6 @@ class ReviewClassifier:
                     parse_failed=False,
                 ))
 
-            # Pad with failures if response is shorter than expected
             if len(results) < batch_size:
                 self._logger.warning(
                     "Response has %d items, expected %d. Padding with failures.",
@@ -295,9 +355,13 @@ class ReviewClassifier:
             return failed
 
     def _make_parse_failed_result(self, raw: str = "") -> ClassificationResult:
-        """Return a ClassificationResult indicating parse failure."""
+        """Return a ClassificationResult indicating parse failure.
+
+        Uses "unclassified" as the product_area sentinel (not "ux") so that
+        failed classifications don't pollute the UX bucket in SQL aggregates.
+        """
         return ClassificationResult(
-            product_area="ux",
+            product_area="unclassified",
             specific_feature_request=None,
             workflow_breakdown=False,
             confidence=0.0,

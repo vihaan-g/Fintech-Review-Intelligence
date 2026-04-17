@@ -13,6 +13,8 @@ import argparse
 import json
 import logging
 import os
+import signal
+import sys
 from datetime import datetime, timezone
 
 from dotenv import load_dotenv
@@ -26,18 +28,19 @@ from src.classification.batch_processor import BatchProcessor
 from src.council.council_orchestrator import CouncilOrchestrator
 
 
-def setup_logging() -> None:
-    """Configure root logger for the pipeline."""
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-
-
 def ensure_outputs_dir() -> None:
     """Create outputs/ directory if it does not exist."""
     os.makedirs("outputs", exist_ok=True)
+
+
+def _install_sigint_handler() -> None:
+    """Install a clean SIGINT handler that logs and exits 130 instead of traceback."""
+    def _handler(sig: int, frame: object) -> None:
+        logging.getLogger(__name__).info(
+            "Interrupted (SIGINT) — progress checkpointed. Re-run to resume."
+        )
+        sys.exit(130)
+    signal.signal(signal.SIGINT, _handler)
 
 
 def main() -> None:
@@ -47,7 +50,6 @@ def main() -> None:
     already-complete phases are skipped automatically.
     Failed phases raise and stop the pipeline immediately.
     """
-    setup_logging()
     ensure_outputs_dir()
     logger = logging.getLogger(__name__)
 
@@ -66,9 +68,11 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    Config.setup_logging()
+    _install_sigint_handler()
+
     load_dotenv()
     config = Config.from_env()
-    Config.setup_logging()
 
     logger.info(
         "Pipeline starting — dry_run=%s phase=%s",
@@ -141,7 +145,10 @@ def main() -> None:
             if state and state["status"] == "complete":
                 logger.info("Phase 3 (classification) already complete — skipping")
             else:
-                logger.info("Phase 3: Semantic Classification")
+                if state and state.get("status") == "in_progress":
+                    logger.info("Phase 3: Semantic Classification — resuming from checkpoint")
+                else:
+                    logger.info("Phase 3: Semantic Classification")
                 if args.dry_run:
                     logger.info("DRY RUN — skipping classification API calls")
                     db.save_phase_state(
@@ -258,4 +265,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass  # handled by SIGINT handler installed in main()
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger(__name__).error("Pipeline failed: %s", exc, exc_info=True)
+        sys.exit(1)

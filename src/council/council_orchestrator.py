@@ -153,6 +153,7 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
         members: list[CouncilMember],
         chairman: CouncilMember,
         config: Config,
+        seed: int | None = None,
     ) -> None:
         """Initialise orchestrator with injected members and chairman.
 
@@ -160,10 +161,15 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
             members:  All 4 council members (including chairman as a member).
             chairman: The Gemini chairman — also participates in Stage 1.
             config:   Validated Config instance.
+            seed:     Optional RNG seed for Stage 2 shuffle (None = random).
         """
+        assert len(members) == 4, (
+            f"Council requires exactly 4 members, got {len(members)}"
+        )
         self.members = members
         self.chairman = chairman
         self.config = config
+        self._seed = seed
 
     @classmethod
     def default(cls, config: Config) -> "CouncilOrchestrator":
@@ -267,6 +273,19 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
 
         # Guard: Stage 2+ is meaningless if nobody returned useful text.
         if not any(r.clean_response.strip() for r in stage1_list):
+            # H9: persist raw stage1 outputs before raising so there is something
+            # to debug from even when the run fails here.
+            os.makedirs("outputs", exist_ok=True)
+            stage1_raw_path = os.path.join("outputs", "council_stage1_raw.json")
+            try:
+                with open(stage1_raw_path, "w", encoding="utf-8") as fh:
+                    json.dump(
+                        [dataclasses.asdict(r) for r in stage1_list],
+                        fh, indent=2, ensure_ascii=False,
+                    )
+                logger.info("Stage 1 raw responses saved to %s for debugging", stage1_raw_path)
+            except OSError as exc:
+                logger.warning("Could not save stage1 raw debug output: %s", exc)
             raise RuntimeError(
                 "All Stage 1 members returned empty responses. "
                 "Check API keys, network connectivity, and OpenRouter / "
@@ -277,7 +296,8 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
         # Stage 2 — anonymized gap-finding review (chairman only)
         # -------------------------------------------------------------------
         shuffled = list(stage1_list)
-        random.shuffle(shuffled)
+        rng = random.Random(self._seed)
+        rng.shuffle(shuffled)
         anonymization_map: dict[str, str] = {
             label: resp.member_name
             for label, resp in zip(_LABELS, shuffled)
@@ -299,12 +319,23 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
         t3_ms = int((time.monotonic() - t3_start) * 1000)
         logger.info("Council Stage 3 complete — synthesis in %dms", t3_ms)
 
+        synthesis = stage3_resp.clean_response
+        # H10: validate synthesis length here, inside run(), before marking council
+        # complete — prevents InsightReporter from crashing after 2 hours of
+        # classification have already completed.
+        if len(synthesis.strip()) < 100:
+            raise RuntimeError(
+                f"Stage 3 synthesis is too short ({len(synthesis.strip())} chars). "
+                "The chairman model may have returned an empty or blocked response. "
+                "Check the chairman model ID and Gemini quota."
+            )
+
         total_duration_ms = int((time.monotonic() - pipeline_start) * 1000)
         result = CouncilResult(
             stage1_responses=stage1_responses,
             anonymization_map=anonymization_map,
             stage2_gap_analysis=stage2_gap_analysis,
-            stage3_synthesis=stage3_resp.clean_response,
+            stage3_synthesis=synthesis,
             total_duration_ms=total_duration_ms,
             generated_at=generated_at,
         )
@@ -378,18 +409,5 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
         except OSError as exc:
             logger.error("Failed to save council result: %s", exc)
 
-        # Record pipeline state for the council phase
-        state_path = os.path.join("outputs", "pipeline_state.json")
-        state: dict = {}
-        if os.path.exists(state_path):
-            try:
-                with open(state_path, encoding="utf-8") as fh:
-                    state = json.load(fh)
-            except (OSError, json.JSONDecodeError):
-                state = {}
-        state["council"] = {"status": "complete", "generated_at": result.generated_at}
-        try:
-            with open(state_path, "w", encoding="utf-8") as fh:
-                json.dump(state, fh, indent=2)
-        except OSError as exc:
-            logger.warning("Could not update pipeline_state.json: %s", exc)
+        # H8: pipeline_state.json is never read — canonical state lives in the DB.
+        # Removed the dead JSON state write.

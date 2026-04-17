@@ -177,34 +177,37 @@ def test_keyword_frequency_returns_empty_dict_on_no_matches():
 # FIX 1.4 — Rollback test
 # ---------------------------------------------------------------------------
 
-def test_database_manager_rollback_on_exception():
-    """DatabaseManager rolls back on exception — data is not committed."""
-    with DatabaseManager(db_path=":memory:") as db:
+def test_database_manager_rollback_on_exception(tmp_path):
+    """DatabaseManager rolls back uncommitted data when __exit__ receives an exception.
+
+    M10: uses a file-backed DB so rollback is verifiable across connections
+    (two :memory: connections are independent and can't test rollback).
+    """
+    db_file = str(tmp_path / "rollback_test.db")
+
+    # Phase 1: create the schema with a clean commit
+    with DatabaseManager(db_path=db_file) as db:
         db.create_schema()
-        # Open a nested connection to the same in-memory DB is not possible,
-        # so we trigger rollback by calling __exit__ with a simulated exception
-        # directly on a fresh sub-context-manager instance.
-        inner_db = DatabaseManager(db_path=":memory:")
-        inner_db.__enter__()
-        inner_db.create_schema()
-        inner_db.insert_reviews([{
-            "app_name": "TestApp",
-            "review_id": "rollback_r1",
-            "rating": 3,
-            "text": "test",
-            "date": "2026-01-01T00:00:00",
-            "thumbs_up": 0,
-            "has_dev_reply": 0,
-            "dev_reply_text": None,
-            "scraped_at": "2026-04-15T00:00:00",
-        }])
-        # Simulate an exception during __exit__ — triggers rollback path
-        inner_db.__exit__(ValueError, ValueError("Simulated failure"), None)
-        # Connection closed; re-open to verify no data persisted
-        # (in-memory DB is destroyed on close, so count must be 0 post-reopen)
-        with DatabaseManager(db_path=":memory:") as verify_db:
-            verify_db.create_schema()
-            assert verify_db.get_review_count("TestApp") == 0
+
+    # Phase 2: open DB, write a row WITHOUT going through insert_reviews
+    # (which auto-commits), then trigger rollback via __exit__ exception
+    inner = DatabaseManager(db_path=db_file)
+    inner.__enter__()
+    # Direct cursor write — no commit, so still in an open transaction
+    inner._conn.execute(
+        "INSERT INTO reviews (app_name, review_id, rating, text, date, scraped_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ("TestApp", "rollback_r1", 3, "test", "2026-01-01T00:00:00", "2026-04-15T00:00:00"),
+    )
+    # Data is visible within the open connection
+    assert inner.get_review_count("TestApp") == 1
+
+    # Trigger rollback
+    inner.__exit__(ValueError, ValueError("Simulated failure"), None)
+
+    # Phase 3: re-open and verify the row was rolled back
+    with DatabaseManager(db_path=db_file) as verify_db:
+        assert verify_db.get_review_count("TestApp") == 0
 
 
 # ---------------------------------------------------------------------------
@@ -714,6 +717,131 @@ def test_review_volume_by_week_groups_by_iso_week():
         assert any(w.endswith("-00") for w in weeks), (
             f"Expected a week-00 bucket for 2026-01-01, got {weeks}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Audit fix tests — BLOCKING / HIGH behaviors
+# ---------------------------------------------------------------------------
+
+def test_parse_failed_result_uses_unclassified_sentinel():
+    """B7: _make_parse_failed_result returns 'unclassified', not 'ux'."""
+    import os
+    os.environ.setdefault("GEMINI_API_KEY", "test_key")
+    os.environ.setdefault("OPENROUTER_API_KEY", "test_key")
+    from src.classification.review_classifier import ReviewClassifier
+    from src.config import Config
+    config = Config.from_env()
+    classifier = ReviewClassifier(config)
+    result = classifier._make_parse_failed_result()
+    assert result.product_area == "unclassified"
+    assert result.parse_failed is True
+
+
+def test_parse_batch_response_bracket_slice_with_preamble():
+    """H3: _parse_batch_response extracts JSON array even with preamble text."""
+    import os, json
+    os.environ.setdefault("GEMINI_API_KEY", "test_key")
+    os.environ.setdefault("OPENROUTER_API_KEY", "test_key")
+    from src.classification.review_classifier import ReviewClassifier
+    from src.config import Config
+    config = Config.from_env()
+    classifier = ReviewClassifier(config)
+    valid_item = {
+        "product_area": "transactions",
+        "specific_feature_request": None,
+        "workflow_breakdown": False,
+        "confidence": 0.85,
+    }
+    # Simulate Gemini prepending prose before the JSON array
+    raw = f"Here is the JSON array you requested:\n{json.dumps([valid_item])}\nDone."
+    results = classifier._parse_batch_response(raw, batch_size=1)
+    assert len(results) == 1
+    assert not results[0].parse_failed
+    assert results[0].product_area == "transactions"
+
+
+def test_gemini_auth_error_propagates_from_classify_batch(monkeypatch):
+    """B2: GeminiAuthError is not swallowed by classify_batch."""
+    import os
+    os.environ.setdefault("GEMINI_API_KEY", "bad_key")
+    os.environ.setdefault("OPENROUTER_API_KEY", "test_key")
+    from src.classification.review_classifier import (
+        ReviewClassifier, GeminiAuthError,
+    )
+    from src.config import Config
+    config = Config.from_env()
+    classifier = ReviewClassifier(config)
+
+    def _raise_auth(*args, **kwargs):
+        raise GeminiAuthError("HTTP 401")
+    monkeypatch.setattr(classifier, "_call_gemini", _raise_auth)
+
+    with pytest.raises(GeminiAuthError):
+        classifier.classify_batch([{"text": "test review"}])
+
+
+def test_database_manager_execute_read_returns_list():
+    """M11: execute_read() is a public API that returns list[dict]."""
+    with DatabaseManager(db_path=":memory:") as db:
+        db.create_schema()
+        db.insert_reviews([{
+            "app_name": "TestApp", "review_id": "er1",
+            "rating": 4, "text": "good",
+            "date": "2026-01-01T00:00:00", "thumbs_up": 0,
+            "has_dev_reply": 0, "dev_reply_text": None,
+            "scraped_at": "2026-04-15T00:00:00",
+        }])
+        rows = db.execute_read("SELECT app_name FROM reviews WHERE review_id = ?", ("er1",))
+        assert len(rows) == 1
+        assert rows[0]["app_name"] == "TestApp"
+
+
+def test_batch_processor_iteration_cap():
+    """H2: BatchProcessor.run() terminates when iteration cap is reached."""
+    import os
+    os.environ.setdefault("GEMINI_API_KEY", "test_key")
+    os.environ.setdefault("OPENROUTER_API_KEY", "test_key")
+    from src.classification.review_classifier import ReviewClassifier, ClassificationResult
+    from src.classification.batch_processor import BatchProcessor
+    from src.config import Config
+    import time
+    config = Config.from_env()
+
+    with DatabaseManager(db_path=":memory:") as db:
+        db.create_schema()
+        # Insert 5 reviews
+        db.insert_reviews([{
+            "app_name": "TestApp", "review_id": f"cap{i}",
+            "rating": 2, "text": f"review {i}",
+            "date": "2026-01-01T00:00:00", "thumbs_up": 0,
+            "has_dev_reply": 0, "dev_reply_text": None,
+            "scraped_at": "2026-04-15T00:00:00",
+        } for i in range(5)])
+
+        # Mock classify_batch to return parse_failed (simulates empty-ID infinite loop)
+        # but also actually update classification so the batch shrinks
+        call_count = [0]
+        original_classify = ReviewClassifier.classify_batch
+
+        def mock_classify(self, reviews):
+            call_count[0] += 1
+            return [ClassificationResult(
+                product_area="unclassified",
+                specific_feature_request=None,
+                workflow_breakdown=False,
+                confidence=0.0,
+                raw_response="",
+                parse_failed=True,
+            ) for _ in reviews]
+
+        classifier = ReviewClassifier(config)
+        classifier.classify_batch = lambda r: mock_classify(classifier, r)
+
+        processor = BatchProcessor(classifier=classifier, db=db)
+        processor.SLEEP_BETWEEN_BATCHES = 0.0  # no sleep in tests
+        result = processor.run()
+        # Should complete without infinite loop
+        assert result.batches_processed <= (5 // processor.BATCH_SIZE) + 6
 
 
 def test_main_dry_run_completes_without_api_calls():

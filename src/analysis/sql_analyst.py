@@ -1,6 +1,5 @@
 """Runs all analytical SQL queries against the reviews database."""
 import logging
-import sqlite3
 from typing import Any
 
 from src.data_collection.database_manager import DatabaseManager
@@ -44,7 +43,7 @@ class SQLAnalyst:
     # ------------------------------------------------------------------
 
     def _execute(self, sql: str, params: tuple = ()) -> list[dict]:
-        """Run a parameterized SELECT and return rows as list[dict].
+        """Run a parameterized SELECT via DatabaseManager.execute_read().
 
         Args:
             sql:    SQL query string with ? placeholders.
@@ -56,14 +55,7 @@ class SQLAnalyst:
         Raises:
             sqlite3.Error: On any database error.
         """
-        try:
-            cursor = self._db._cursor()
-            cursor.execute(sql, params)
-            rows = cursor.fetchall()
-            return [dict(row) for row in rows]
-        except sqlite3.Error as exc:
-            logger.error("SQL execution failed: %s", exc)
-            raise
+        return self._db.execute_read(sql, params)
 
     # ------------------------------------------------------------------
     # Public analytical methods
@@ -112,6 +104,7 @@ class SQLAnalyst:
         WHERE thumbs_up >= ?
           AND rating <= 2
         ORDER BY thumbs_up DESC
+        LIMIT 500
         """
         return self._execute(sql, (min_thumbs,))
 

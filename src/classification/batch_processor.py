@@ -99,9 +99,12 @@ class BatchProcessor:
         batches_processed = 0
         start_time = time.monotonic()
 
-        # Step 4: loop — re-fetch each time so checkpointing works correctly
+        # Step 4: loop — re-fetch each time so checkpointing works correctly.
+        # H2: cap iterations to prevent infinite loop if H1 (empty review_id) fires.
+        max_iterations = math.ceil(unclassified_total / self.BATCH_SIZE) + 5
         quota_exhausted = False
-        while True:
+        iteration = 0
+        while iteration < max_iterations:
             batch = self._db.get_unclassified_reviews(limit=self.BATCH_SIZE)
             if not batch:
                 break
@@ -131,10 +134,15 @@ class BatchProcessor:
                     parse_failures += 1
 
             batches_processed += 1
+            iteration += 1
 
-            # Step 5: log every 10 batches
+            # Step 5: DEBUG log every batch, INFO every 10 batches
+            pct = (total_classified / unclassified_total) * 100
+            self._logger.debug(
+                "Batch %d: classified %d/%d (%.1f%%) — %d parse failures",
+                batches_processed, total_classified, unclassified_total, pct, parse_failures,
+            )
             if batches_processed % 10 == 0:
-                pct = (total_classified / unclassified_total) * 100
                 self._logger.info(
                     "Classified %d/%d reviews (%.1f%%) \u2014 %d parse failures",
                     total_classified, unclassified_total, pct, parse_failures,

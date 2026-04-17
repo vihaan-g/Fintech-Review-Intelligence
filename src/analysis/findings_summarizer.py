@@ -72,7 +72,7 @@ class FindingsSummarizer:
         logger.info("Generating findings summary — running all queries.")
 
         cross_app = self._analyst.cross_app_summary()
-        high_signal = self._analyst.high_signal_low_rating_reviews(min_thumbs=0)
+        high_signal = self._analyst.high_signal_low_rating_reviews(min_thumbs=1)
         keywords = self._analyst.keyword_frequency()
         rating_trends = self._analyst.rating_distribution_over_time()
         reply_impact = self._analyst.developer_reply_impact()

@@ -1,12 +1,14 @@
-# fintech-review-intelligence
+# Fintech-Review-Intelligence
 
 ## Project Purpose
+
 Python data pipeline to analyze Play Store reviews for Indian fintech apps
 (Fi Money, Jupiter, CRED, PhonePe). Surfaces non-obvious product intelligence
 via SQL analysis and a 3-stage LLM council adapted from Karpathy's council model.
 Portfolio project targeting APM/BA roles at Indian fintech startups.
 
 ## Tech Stack
+
 - Python 3.11+, SQLite (WAL mode), google-play-scraper
 - Classification: Gemini 2.5 Flash via Google AI Studio free tier (1,500 req/day)
 - Council Chairman: Gemini 3 Flash Preview (gemini-3-flash-preview)
@@ -18,6 +20,7 @@ Portfolio project targeting APM/BA roles at Indian fintech startups.
 - All API keys via environment variables only — never hardcoded
 
 ## Council Architecture (Karpathy-adapted)
+
 - 4 models total: Gemini (chairman) + DeepSeek R1 + Qwen3-235B + Llama 4 Maverick
 - Stage 1: All 4 models generate insights independently and in parallel
 - Stage 2: All 4 models review each other with identities anonymized
@@ -26,16 +29,18 @@ Portfolio project targeting APM/BA roles at Indian fintech startups.
 - Total API calls per council run: ~6 (4 Stage 1 + 1 Stage 2 + 1 Stage 3; well within all free tier limits)
 
 ## Pipeline Phases
-1. Data Collection    — ReviewCollector, DatabaseManager
-2. SQL Analysis       — SQLAnalyst, FindingsSummarizer
-3. Classification     — ReviewClassifier, BatchProcessor
-4. LLM Council        — CouncilMember, CouncilOrchestrator
-5. Report             — InsightReporter
+
+1. Data Collection — ReviewCollector, DatabaseManager
+2. SQL Analysis — SQLAnalyst, FindingsSummarizer
+3. Classification — ReviewClassifier, BatchProcessor
+4. LLM Council — CouncilMember, CouncilOrchestrator
+5. Report — InsightReporter
 
 ## Class Rules (MANDATORY)
+
 - Use a class for any component that: holds state, manages a resource
   (DB connection, API client), or represents a pipeline stage
-- Every class requires: typed __init__ parameters, class-level docstring,
+- Every class requires: typed **init** parameters, class-level docstring,
   typed signatures on all public methods
 - Never use bare functions for pipeline logic — wrap in a class
 - Pure utility functions (stateless formatters, parsers) go in utils.py only
@@ -43,6 +48,7 @@ Portfolio project targeting APM/BA roles at Indian fintech startups.
   Example: ReviewCollector lives in review_collector.py
 
 ## Coding Standards
+
 - Type hints on every function and method signature — no exceptions
 - Docstrings on every class and every public method
 - No print() in src/ — use the logging module throughout
@@ -54,21 +60,25 @@ Portfolio project targeting APM/BA roles at Indian fintech startups.
 - Never mutate input arguments. Return new objects.
 
 ## Context Management
+
 - Run /compact between each pipeline phase
 - Compact at 70% context utilization — do not wait for auto-compact
 - Never load all 10,000 reviews into context. Work from DB queries and summaries.
 
 ## Hooks
+
 - PreToolUse: block any file write containing hardcoded API key patterns
 - PostToolUse on Write to src/: run pytest after every source file change
 
 ## Subagents
-- data-collector       — scraping and SQLite only
-- sql-analyst          — SQL queries and findings summary only
+
+- data-collector — scraping and SQLite only
+- sql-analyst — SQL queries and findings summary only
 - council-orchestrator — 3-stage council and all external API calls
-- insight-reporter     — markdown report generation, no API calls
+- insight-reporter — markdown report generation, no API calls
 
 ## Gotchas (add failures here as you encounter them)
+
 - google-play-scraper: add 0.5s sleep between per-app fetches to avoid rate limits
 - OpenRouter :free models: 50 req/day shared across all free models on one account
 - Qwen3-235B: higher latency than other council members — set a 90s timeout
@@ -76,4 +86,4 @@ Portfolio project targeting APM/BA roles at Indian fintech startups.
 - Stage 2 prompt must constrain output length or Llama 4 Maverick gets verbose
 - Qwen3-235B responses may include <think>...</think> reasoning blocks
   before the actual answer. Strip these before parsing council output:
-  use re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL)
+  use re.sub(r'<think>.\*?</think>', '', response, flags=re.DOTALL)

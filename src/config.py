@@ -1,6 +1,7 @@
 """Configuration management: validates required environment variables at startup."""
 import logging
 import os
+import sys
 
 
 class Config:
@@ -64,9 +65,38 @@ class Config:
 
     @staticmethod
     def setup_logging(level: int = logging.INFO) -> None:
-        """Configure root logger. Call once at pipeline startup."""
-        logging.basicConfig(
-            level=level,
-            format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
+        """Configure root logger with colour output on TTYs."""
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setFormatter(_ColourFormatter())
+        logging.basicConfig(level=level, handlers=[handler])
+
+
+class _ColourFormatter(logging.Formatter):
+    """Adds ANSI colour to log level names when writing to a TTY."""
+
+    _GREY   = "\x1b[38;5;245m"
+    _CYAN   = "\x1b[36m"
+    _YELLOW = "\x1b[33m"
+    _RED    = "\x1b[31m"
+    _BOLD_RED = "\x1b[1;31m"
+    _RESET  = "\x1b[0m"
+
+    _COLOURS = {
+        logging.DEBUG:    _GREY,
+        logging.INFO:     _CYAN,
+        logging.WARNING:  _YELLOW,
+        logging.ERROR:    _RED,
+        logging.CRITICAL: _BOLD_RED,
+    }
+
+    _FMT = "%(asctime)s  {colour}%(levelname)-8s{reset}  %(name)s  %(message)s"
+
+    def format(self, record: logging.LogRecord) -> str:
+        use_colour = hasattr(sys.stderr, "isatty") and sys.stderr.isatty()
+        colour = self._COLOURS.get(record.levelno, "")
+        fmt = self._FMT.format(
+            colour=colour if use_colour else "",
+            reset=self._RESET if use_colour else "",
         )
+        formatter = logging.Formatter(fmt, datefmt="%Y-%m-%d %H:%M:%S")
+        return formatter.format(record)

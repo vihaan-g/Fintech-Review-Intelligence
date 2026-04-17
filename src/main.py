@@ -9,12 +9,19 @@ Usage:
     python src/main.py --phase collection # run one phase only
     python src/main.py --dry-run          # mock API calls, test pipeline wiring
 """
+import os
+import sys
+
+# When run as `python src/main.py`, Python adds src/ to sys.path.
+# Insert the project root so `from src.X import Y` absolute imports resolve.
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
 import argparse
 import json
 import logging
-import os
 import signal
-import sys
 from datetime import datetime, timezone
 
 from dotenv import load_dotenv

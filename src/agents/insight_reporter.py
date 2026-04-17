@@ -7,6 +7,7 @@ under 100 characters.
 """
 import logging
 import os
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -225,34 +226,50 @@ class InsightReporter:
         """Write linkedin_snippet.txt. Returns file path.
 
         Rules:
-        - Extract the single most specific, quantified finding from stage3_synthesis
-        - Lead with that finding — not with methodology
-        - Include at least one number from the data
+        - Lead with the most data-driven finding extracted from stage3_synthesis
+        - Include the total review count as a quantified anchor
+        - Add a second extracted finding if one is available
         - End with the GitHub URL
-        - 120-160 words. No hashtags. No emoji.
+        - No hashtags. No emoji.
         - Voice: direct, analytical, not self-promotional
         """
         cross_app = self._summary.cross_app_stats or {}
-
-        # Extract a quantified anchor from the data (total reviews)
         total = sum(s.get("total_reviews", 0) for s in cross_app.values())
 
+        synthesis = self._council.stage3_synthesis or ""
+        findings = self._extract_top_findings(synthesis, n=2)
+        lead = findings[0] if findings else "See the full report for findings."
+        support = findings[1] if len(findings) > 1 else ""
+
+        opener = (
+            f"Analyzed {total:,} Play Store reviews across Fi Money, Jupiter, "
+            "CRED, and PhonePe to surface non-obvious product intelligence "
+            "using SQL analysis and a 4-model LLM council."
+            if total
+            else (
+                "Analysed Play Store reviews across Fi Money, Jupiter, CRED, "
+                "and PhonePe to surface non-obvious product intelligence using "
+                "SQL analysis and a 4-model LLM council."
+            )
+        )
+
         snippet_parts = [
-            f"Analyzed {total:,} Play Store reviews across Fi Money, Jupiter, CRED, and PhonePe "
-            "to understand what Indian fintech users actually complain about when they're unhappy — "
-            "and when those complaints reflect product problems versus surface friction.",
+            opener,
             "",
-            "The most consistent signal across apps: high-thumbs-up negative reviews "
-            "cluster around specific flow failures (payment stuck, reward redemption broken, "
-            "KYC loop) rather than general dissatisfaction. These are engineering-visible "
-            "bugs, not experience preferences — and they drive disproportionate churn signal.",
+            f"Lead finding: {lead}",
+        ]
+        if support:
+            snippet_parts.extend(["", f"Also: {support}"])
+
+        snippet_parts.extend([
             "",
-            "Cross-app pattern: apps with higher developer reply rates on low-rated reviews "
-            "show measurably different rating distributions. Response presence correlates "
-            "more strongly with sentiment recovery than response content.",
+            "Method: 6 SQL queries feed a Karpathy-adapted 3-stage council — "
+            "parallel independent insights, anonymised gap-finding review, "
+            "chairman synthesis (Gemini 3 Flash Preview + DeepSeek R1 + "
+            "Qwen3-235B + Llama 4 Maverick).",
             "",
             "Full methodology + data: github.com/vihaan-g/fintech-review-intelligence",
-        ]
+        ])
 
         content = "\n".join(snippet_parts)
         path = os.path.join(self.OUTPUTS_DIR, "linkedin_snippet.txt")
@@ -261,8 +278,12 @@ class InsightReporter:
         return path
 
     def _write_readme(self) -> str:
-        """Write README.md (overwrites the stub). Returns file path.
+        """Write a generated companion README to outputs/README.md.
 
+        Does NOT overwrite the project-root README.md — that file is
+        hand-curated and should not be clobbered by dry-run or real-run
+        outputs. This method writes a portfolio-facing summary companion
+        that lives alongside the other generated artifacts in outputs/.
         Findings come first — before tech stack or methodology.
         """
         synthesis = self._council.stage3_synthesis
@@ -326,7 +347,7 @@ class InsightReporter:
         ])
 
         content = "\n".join(lines)
-        path = "README.md"  # project root
+        path = os.path.join(self.OUTPUTS_DIR, "README.md")
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(content)
         return path
@@ -334,28 +355,47 @@ class InsightReporter:
     def _extract_top_findings(self, synthesis: str, n: int = 3) -> list[str]:
         """Extract top N finding lines from the synthesis text.
 
-        Looks for lines starting with **Finding or **Insight markers.
-        Falls back to first N non-empty sentences if no markers found.
+        Primary: lines starting with ``**Finding`` or ``**Insight``.
+        Secondary: markdown headings like ``### Finding`` / ``## Key Findings``
+                   / numeric-prefixed lines (``1.``, ``2)``).
+        Fallback: first N non-empty sentences (>=20 chars) with a period.
+        Final fallback: a single generic pointer line (never empty).
         """
         findings: list[str] = []
+
+        def _clean(line: str) -> str:
+            stripped = line.strip().lstrip("#").strip().lstrip("*").strip()
+            # Strip leading "1." / "1)" style numbering
+            stripped = re.sub(r"^\d+[.)]\s*", "", stripped)
+            if ":" in stripped:
+                head, tail = stripped.split(":", 1)
+                if len(head) <= 40:
+                    stripped = tail.strip()
+            return stripped.strip("*").strip()
+
+        # Primary pass: structured markers
         for line in synthesis.splitlines():
             stripped = line.strip()
-            if stripped.startswith("**Finding") or stripped.startswith("**Insight"):
-                # Strip markdown bold markers and leading **Finding N:**
-                clean = stripped.lstrip("*").strip()
-                if ":" in clean:
-                    clean = clean.split(":", 1)[1].strip()
-                if clean:
-                    findings.append(clean)
+            if (
+                stripped.startswith("**Finding")
+                or stripped.startswith("**Insight")
+                or stripped.startswith("### Finding")
+                or stripped.startswith("### Insight")
+                or re.match(r"^\d+[.)]\s", stripped)
+            ):
+                cleaned = _clean(stripped)
+                if cleaned and len(cleaned) > 10:
+                    findings.append(cleaned)
             if len(findings) >= n:
                 break
 
         # Fallback: take first N sentences from synthesis
         if not findings:
-            sentences = [s.strip() for s in synthesis.replace("\n", " ").split(".") if len(s.strip()) > 20]
+            flat = synthesis.replace("\n", " ")
+            sentences = [s.strip() for s in flat.split(".") if len(s.strip()) > 20]
             findings = [s + "." for s in sentences[:n]]
 
-        return findings or ["See findings_report.md for full analysis."]
+        return findings or ["See findings_report.md for the full analysis."]
 
 
 class _DictProxy:

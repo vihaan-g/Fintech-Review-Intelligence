@@ -1,7 +1,0 @@
-Analyzed 0 Play Store reviews across Fi Money, Jupiter, CRED, and PhonePe to understand what Indian fintech users actually complain about when they're unhappy — and when those complaints reflect product problems versus surface friction.
-
-The most consistent signal across apps: high-thumbs-up negative reviews cluster around specific flow failures (payment stuck, reward redemption broken, KYC loop) rather than general dissatisfaction. These are engineering-visible bugs, not experience preferences — and they drive disproportionate churn signal.
-
-Cross-app pattern: apps with higher developer reply rates on low-rated reviews show measurably different rating distributions. Response presence correlates more strongly with sentiment recovery than response content.
-
-Full methodology + data: github.com/vihaan-g/fintech-review-intelligence

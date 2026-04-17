@@ -114,11 +114,14 @@ class CouncilMember:
         """
         url = (
             "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{self.model_id}:generateContent?key={self._api_key}"
+            f"{self.model_id}:generateContent"
         )
+        # Send the API key via the official header, not as a query-string
+        # parameter — keeps the secret out of access logs.
+        headers = {"x-goog-api-key": self._api_key}
         body = {"contents": [{"parts": [{"text": prompt}]}]}
         async with httpx.AsyncClient(timeout=90.0) as client:
-            resp = await client.post(url, json=body)
+            resp = await client.post(url, json=body, headers=headers)
             resp.raise_for_status()
             data = resp.json()
         return str(data["candidates"][0]["content"]["parts"][0]["text"])

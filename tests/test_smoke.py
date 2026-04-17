@@ -627,11 +627,102 @@ def test_insight_reporter_generates_all_files(tmp_path, monkeypatch):
     assert result.word_count > 0
 
 
+# ---------------------------------------------------------------------------
+# L3 — Classification round-trip test
+# ---------------------------------------------------------------------------
+
+def test_classification_round_trip_persists_fields():
+    """A ClassificationResult serialised through update_classification()
+    round-trips back with all fields intact when fetched from the DB."""
+    os.environ.setdefault("GEMINI_API_KEY", "test_key")
+    os.environ.setdefault("OPENROUTER_API_KEY", "test_key")
+    from src.classification.review_classifier import ClassificationResult
+    with DatabaseManager(db_path=":memory:") as db:
+        db.create_schema()
+        db.insert_reviews([{
+            "app_name": "TestApp", "review_id": "rt1",
+            "rating": 2, "text": "kyc stuck",
+            "date": "2026-01-01T00:00:00", "thumbs_up": 7,
+            "has_dev_reply": 0, "dev_reply_text": None,
+            "scraped_at": "2026-04-15T00:00:00",
+        }])
+        result = ClassificationResult(
+            product_area="onboarding",
+            specific_feature_request="retry KYC button",
+            workflow_breakdown=True,
+            confidence=0.87,
+            raw_response="{}",
+            parse_failed=False,
+        )
+        payload = json.dumps({
+            "product_area": result.product_area,
+            "specific_feature_request": result.specific_feature_request,
+            "workflow_breakdown": result.workflow_breakdown,
+            "confidence": result.confidence,
+            "parse_failed": result.parse_failed,
+        })
+        db.update_classification("rt1", payload)
+
+        cursor = db.conn.execute(
+            "SELECT classification FROM reviews WHERE review_id = 'rt1'"
+        )
+        stored = json.loads(cursor.fetchone()[0])
+        assert stored["product_area"] == "onboarding"
+        assert stored["specific_feature_request"] == "retry KYC button"
+        assert stored["workflow_breakdown"] is True
+        assert abs(stored["confidence"] - 0.87) < 1e-9
+        assert stored["parse_failed"] is False
+
+
+# ---------------------------------------------------------------------------
+# L4 — Week-00 strftime awareness
+# ---------------------------------------------------------------------------
+
+def test_review_volume_by_week_groups_by_iso_week():
+    """review_volume_by_week() returns rows whose 'week' key is in YYYY-WW
+    format. Days before the year's first Monday fall into week '00' — this
+    test exercises that SQLite edge case explicitly."""
+    with DatabaseManager(db_path=":memory:") as db:
+        db.create_schema()
+        db.insert_reviews([
+            # 2026-01-01 is a Thursday — before the first Monday, so week 00.
+            {
+                "app_name": "TestApp", "review_id": "w1",
+                "rating": 3, "text": "early january review",
+                "date": "2026-01-01T00:00:00", "thumbs_up": 0,
+                "has_dev_reply": 0, "dev_reply_text": None,
+                "scraped_at": "2026-04-15T00:00:00",
+            },
+            # Mid-year review, definitively not week 00.
+            {
+                "app_name": "TestApp", "review_id": "w2",
+                "rating": 4, "text": "midyear review",
+                "date": "2026-07-15T00:00:00", "thumbs_up": 0,
+                "has_dev_reply": 0, "dev_reply_text": None,
+                "scraped_at": "2026-04-15T00:00:00",
+            },
+        ])
+        analyst = SQLAnalyst(db)
+        rows = analyst.review_volume_by_week()
+        assert rows, "Expected at least one weekly bucket"
+        weeks = {row["week"] for row in rows}
+        # All week labels are YYYY-WW-shaped strings
+        for w in weeks:
+            assert len(w) == 7 and w[4] == "-", f"Unexpected week format: {w}"
+        # The early-January row produces week '00' — guard against future
+        # regressions that silently drop or reshape it.
+        assert any(w.endswith("-00") for w in weeks), (
+            f"Expected a week-00 bucket for 2026-01-01, got {weeks}"
+        )
+
+
 def test_main_dry_run_completes_without_api_calls():
     """python src/main.py --dry-run completes all phases without errors."""
     import subprocess
     import sys
-    project_root = "/Users/vihaan/Documents/Personal/CV/Fintech-Review-Intelligence"
+    from pathlib import Path
+    # Derive project root from this test file's location rather than hardcoding it.
+    project_root = str(Path(__file__).resolve().parent.parent)
     env = os.environ.copy()
     env["GEMINI_API_KEY"] = "test_key"
     env["OPENROUTER_API_KEY"] = "test_key"

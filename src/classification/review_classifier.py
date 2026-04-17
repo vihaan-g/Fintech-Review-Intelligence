@@ -18,6 +18,15 @@ _RETRYABLE_STATUS_CODES = frozenset([429, 500, 502, 503])
 _REQUEST_TIMEOUT_SECONDS = 30.0
 
 
+class GeminiQuotaExhaustedError(RuntimeError):
+    """Raised when Gemini returns 429 after all retries are exhausted.
+
+    Signals that the free-tier daily quota (1,500 req/day) is likely hit.
+    BatchProcessor catches this, checkpoints progress, and exits cleanly
+    so the run can resume tomorrow.
+    """
+
+
 @dataclass
 class ClassificationResult:
     """Result of classifying a single review."""
@@ -123,7 +132,10 @@ class ReviewClassifier:
         prompt = self._build_batch_prompt(reviews)
         try:
             raw = self._call_gemini(prompt)
-        except Exception as exc:
+        except GeminiQuotaExhaustedError:
+            # Bubble up: BatchProcessor catches this, checkpoints, and exits.
+            raise
+        except Exception as exc:  # noqa: BLE001 — we never want to raise on bad JSON
             self._logger.warning("Gemini API call failed for batch of %d: %s", len(reviews), exc)
             return [self._make_parse_failed_result() for _ in reviews]
 
@@ -143,17 +155,25 @@ class ReviewClassifier:
         Raises httpx.HTTPStatusError on non-200 responses after retries exhausted.
         Timeout: 30 seconds.
         """
-        url = f"{_GEMINI_ENDPOINT}?key={self._api_key}"
+        # Pass the API key via the official x-goog-api-key header rather than
+        # ?key=… in the URL — keeps the secret out of access logs and history.
+        url = _GEMINI_ENDPOINT
+        headers = {"x-goog-api-key": self._api_key}
         body = {"contents": [{"parts": [{"text": prompt}]}]}
         last_exc: Exception = RuntimeError("All retries exhausted")
 
+        saw_429 = False
         for attempt in range(_MAX_RETRIES):
             try:
-                response = httpx.post(url, json=body, timeout=_REQUEST_TIMEOUT_SECONDS)
+                response = httpx.post(
+                    url, json=body, headers=headers, timeout=_REQUEST_TIMEOUT_SECONDS,
+                )
                 response.raise_for_status()
                 data = response.json()
                 return data["candidates"][0]["content"]["parts"][0]["text"]
             except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 429:
+                    saw_429 = True
                 if exc.response.status_code not in _RETRYABLE_STATUS_CODES:
                     raise
                 last_exc = exc
@@ -170,6 +190,14 @@ class ReviewClassifier:
             if attempt < _MAX_RETRIES - 1:
                 time.sleep(2 ** attempt)
 
+        # If every retry saw a 429, surface the daily-quota case explicitly
+        # so the BatchProcessor can checkpoint cleanly and exit.
+        if saw_429:
+            raise GeminiQuotaExhaustedError(
+                "Gemini returned 429 on every retry — daily quota likely "
+                "exhausted (1,500 req/day on the free tier). Progress has "
+                "been checkpointed; re-run tomorrow to resume."
+            )
         raise last_exc
 
     def _build_batch_prompt(self, reviews: list[dict]) -> str:

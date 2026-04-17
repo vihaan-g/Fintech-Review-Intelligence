@@ -173,8 +173,14 @@ def main() -> None:
                         f"findings_summary.json not found at {summary_path}. "
                         "Run Phase 2 (analysis) first."
                     )
-                with open(summary_path, encoding="utf-8") as f:
-                    summary_data = json.load(f)
+                try:
+                    with open(summary_path, encoding="utf-8") as f:
+                        summary_data = json.load(f)
+                except (OSError, json.JSONDecodeError) as exc:
+                    raise RuntimeError(
+                        f"Could not read {summary_path}: {exc}. "
+                        "The file may be corrupted — re-run Phase 2 (analysis)."
+                    ) from exc
                 findings_text = summary_data.get("structured_text", "")
 
                 if args.dry_run:
@@ -221,10 +227,22 @@ def main() -> None:
                     "findings_summary.json not found. Run Phase 2 (analysis) first."
                 )
 
-            with open(council_path, encoding="utf-8") as f:
-                council_data = json.load(f)
-            with open(summary_path, encoding="utf-8") as f:
-                summary_data = json.load(f)
+            try:
+                with open(council_path, encoding="utf-8") as f:
+                    council_data = json.load(f)
+            except (OSError, json.JSONDecodeError) as exc:
+                raise RuntimeError(
+                    f"Could not read {council_path}: {exc}. "
+                    "The file may be corrupted — re-run Phase 4 (council)."
+                ) from exc
+            try:
+                with open(summary_path, encoding="utf-8") as f:
+                    summary_data = json.load(f)
+            except (OSError, json.JSONDecodeError) as exc:
+                raise RuntimeError(
+                    f"Could not read {summary_path}: {exc}. "
+                    "The file may be corrupted — re-run Phase 2 (analysis)."
+                ) from exc
 
             from src.agents.insight_reporter import InsightReporter
             reporter = InsightReporter.from_dicts(council_data, summary_data)

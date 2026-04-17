@@ -12,6 +12,7 @@ from src.data_collection.database_manager import DatabaseManager
 logger = logging.getLogger(__name__)
 
 _SLEEP_BETWEEN_PAGES: float = 0.5
+_SLEEP_BETWEEN_APPS: float = 2.0
 
 
 @dataclass
@@ -68,8 +69,9 @@ class ReviewCollector:
         start = datetime.now()
         per_app: dict[str, int] = {}
         skipped_apps: list[str] = []
+        apps_to_collect = list(self.APP_TARGETS.items())
 
-        for app_name, app_id in self.APP_TARGETS.items():
+        for idx, (app_name, app_id) in enumerate(apps_to_collect):
             phase_key = f"collection_{app_name.lower().replace(' ', '_')}"
             state = self._db.get_phase_state(phase_key)
 
@@ -77,6 +79,11 @@ class ReviewCollector:
                 logger.info("Skipping %s — already complete", app_name)
                 skipped_apps.append(app_name)
                 continue
+
+            # Small cooldown between apps to avoid tripping Play Store rate
+            # limits. Skip on the first iteration (nothing to cool from).
+            if idx > 0:
+                time.sleep(_SLEEP_BETWEEN_APPS)
 
             self._db.save_phase_state(phase_key, "in_progress")
 

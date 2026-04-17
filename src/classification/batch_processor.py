@@ -6,7 +6,10 @@ import os
 import time
 from dataclasses import asdict, dataclass
 
-from src.classification.review_classifier import ReviewClassifier
+from src.classification.review_classifier import (
+    GeminiQuotaExhaustedError,
+    ReviewClassifier,
+)
 from src.data_collection.database_manager import DatabaseManager
 
 
@@ -97,12 +100,22 @@ class BatchProcessor:
         start_time = time.monotonic()
 
         # Step 4: loop — re-fetch each time so checkpointing works correctly
+        quota_exhausted = False
         while True:
             batch = self._db.get_unclassified_reviews(limit=self.BATCH_SIZE)
             if not batch:
                 break
 
-            results = self._classifier.classify_batch(batch)
+            try:
+                results = self._classifier.classify_batch(batch)
+            except GeminiQuotaExhaustedError as exc:
+                self._logger.error(
+                    "Gemini daily quota exhausted after %d batches. "
+                    "Progress checkpointed — re-run tomorrow to resume. (%s)",
+                    batches_processed, exc,
+                )
+                quota_exhausted = True
+                break
 
             for review, result in zip(batch, results):
                 classification_json = json.dumps({
@@ -138,18 +151,22 @@ class BatchProcessor:
             duration_seconds=duration,
         )
 
-        # Step 7: mark complete
+        # Step 7: mark state — 'complete' only if we finished cleanly.
+        # When the daily Gemini quota is hit partway through, we stay in
+        # 'in_progress' so the next run resumes instead of silently skipping.
+        final_status = "in_progress" if quota_exhausted else "complete"
         self._db.save_phase_state(
             "classification",
-            "complete",
+            final_status,
             {
                 "total_classified": total_classified,
                 "parse_failures": parse_failures,
                 "batches_processed": batches_processed,
+                "quota_exhausted": quota_exhausted,
             },
         )
 
-        # Step 8: save to file
+        # Step 8: save to file (always — useful for debugging partial runs)
         self._save_result(result_summary)
 
         return result_summary

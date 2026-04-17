@@ -234,11 +234,27 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
         # -------------------------------------------------------------------
         stage1_prompt = self._build_stage1_prompt(findings_summary)
         t1_start = time.monotonic()
-        stage1_list: list[MemberResponse] = list(
-            await asyncio.gather(
-                *[member.generate(stage1_prompt) for member in self.members]
-            )
+        gathered = await asyncio.gather(
+            *[member.generate(stage1_prompt) for member in self.members],
+            return_exceptions=True,
         )
+        stage1_list: list[MemberResponse] = []
+        for member, item in zip(self.members, gathered):
+            if isinstance(item, BaseException):
+                logger.warning(
+                    "Stage 1 member %s raised %s — recording empty response",
+                    member.name, item,
+                )
+                stage1_list.append(MemberResponse(
+                    member_name=member.name,
+                    model_id=member.model_id,
+                    raw_response=f"[error] {item}",
+                    clean_response="",
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    duration_ms=0,
+                ))
+            else:
+                stage1_list.append(item)
         t1_ms = int((time.monotonic() - t1_start) * 1000)
         logger.info(
             "Council Stage 1 complete — %d responses in %dms",
@@ -248,6 +264,14 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
         stage1_responses: dict[str, MemberResponse] = {
             r.member_name: r for r in stage1_list
         }
+
+        # Guard: Stage 2+ is meaningless if nobody returned useful text.
+        if not any(r.clean_response.strip() for r in stage1_list):
+            raise RuntimeError(
+                "All Stage 1 members returned empty responses. "
+                "Check API keys, network connectivity, and OpenRouter / "
+                "Gemini quota. Council aborted — nothing to synthesise."
+            )
 
         # -------------------------------------------------------------------
         # Stage 2 — anonymized gap-finding review (chairman only)

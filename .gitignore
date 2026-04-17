@@ -15,9 +15,11 @@ build/
 # Environment variables
 .env
 
-# Outputs (large data files)
+# Outputs (large data files and generated artifacts)
 outputs/*.json
 outputs/*.csv
+outputs/*.md
+outputs/*.txt
 
 # Database
 *.db

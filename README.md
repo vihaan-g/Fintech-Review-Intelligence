@@ -1,4 +1,4 @@
-# fintech-review-intelligence
+# Fintech Review Intelligence
 
 A Python data pipeline that scrapes Play Store reviews for four Indian fintech
 apps (Fi Money, Jupiter, CRED, PhonePe) and surfaces non-obvious product

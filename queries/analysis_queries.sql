@@ -207,3 +207,82 @@ FROM (
     GROUP BY app_name, rating
 ) ranked
 WHERE rnk = 1;
+
+
+-- -----------------------------------------------------------------------------
+-- Query 7: Classification Breakdown
+-- -----------------------------------------------------------------------------
+-- What it measures:
+--   For reviews with rating <= 2 that were successfully classified, the
+--   distribution of product_area labels per app — count and percentage of
+--   that app's classified low-rated reviews.
+--
+-- Why it matters for product analysis:
+--   SQL-only signals (rating averages, keyword counts) are symptom-level.
+--   Classification breakdown answers *why* users are unhappy: 43% of
+--   Jupiter's low-rated reviews are support complaints, while CRED's are
+--   dominated by onboarding friction. This shifts the council's analysis
+--   from "what" to "where to focus product resources". Enriching the
+--   findings_summary at the end of Phase 3 means the council always sees
+--   classification signals alongside SQL signals.
+--
+-- Filter notes:
+--   json_extract(classification, '$.parse_failed') = 0 excludes failed
+--   parses (product_area = 'unclassified'). The LIKE '%parse_failed%'
+--   pattern cannot be used because the key name appears in every row's JSON
+--   regardless of its boolean value.
+-- -----------------------------------------------------------------------------
+SELECT
+    app_name,
+    json_extract(classification, '$.product_area') AS product_area,
+    COUNT(*)                                        AS count,
+    ROUND(
+        100.0 * COUNT(*) / SUM(COUNT(*)) OVER (PARTITION BY app_name),
+        1
+    )                                               AS pct_of_low_rated
+FROM reviews
+WHERE rating <= 2
+  AND classification IS NOT NULL
+  AND json_extract(classification, '$.parse_failed') = 0
+GROUP BY app_name, product_area
+ORDER BY app_name ASC, count DESC;
+
+
+-- -----------------------------------------------------------------------------
+-- Query 8: Top Classified Complaints
+-- -----------------------------------------------------------------------------
+-- What it measures:
+--   Top 3 low-rated, high-thumbs-up complaints per app that have a valid
+--   classification label. Each row includes app_name, rating, thumbs_up,
+--   product_area, and the first 200 characters of the review text.
+--
+-- Why it matters for product analysis:
+--   High thumbs_up on a low-rated review means the crowd validated the
+--   complaint. Pairing that signal with a classification label gives the
+--   council specific, actionable pain points: "Jupiter support complaint,
+--   312 thumbs up" is far more useful than raw text. The 3-per-app limit
+--   keeps the council prompt focused rather than overwhelming it with raw
+--   reviews. min_thumbs is a runtime parameter (?).
+-- -----------------------------------------------------------------------------
+SELECT
+    app_name,
+    rating,
+    thumbs_up,
+    json_extract(classification, '$.product_area') AS product_area,
+    SUBSTR(text, 1, 200)                           AS text
+FROM (
+    SELECT
+        app_name,
+        rating,
+        thumbs_up,
+        classification,
+        text,
+        ROW_NUMBER() OVER (PARTITION BY app_name ORDER BY thumbs_up DESC) AS rn
+    FROM reviews
+    WHERE rating <= 2
+      AND thumbs_up >= ?
+      AND classification IS NOT NULL
+      AND json_extract(classification, '$.parse_failed') = 0
+)
+WHERE rn <= 3
+ORDER BY app_name ASC, thumbs_up DESC;

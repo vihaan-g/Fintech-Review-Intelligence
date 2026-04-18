@@ -132,9 +132,104 @@ class FindingsSummarizer:
             logger.error("Failed to save findings summary to %s: %s", path, exc)
             raise
 
+    def enrich_with_classification(
+        self,
+        path: str = "outputs/findings_summary.json",
+    ) -> bool:
+        """Enrich findings_summary.json with classification signals.
+
+        Reads the file at path, adds classification_breakdown and
+        top_classified_complaints keys, appends two new sections to
+        structured_text, then writes the enriched dict back.
+
+        Returns True if enriched, False if skipped (0 classified reviews).
+
+        Args:
+            path: Path to findings_summary.json (default outputs/).
+
+        Raises:
+            OSError: If the file cannot be read or written.
+            json.JSONDecodeError: If the file is not valid JSON.
+        """
+        breakdown = self._analyst.classification_breakdown()
+        complaints = self._analyst.top_classified_complaints()
+
+        if not breakdown and not complaints:
+            logger.warning(
+                "No classified reviews found — skipping classification enrichment."
+            )
+            return False
+
+        try:
+            with open(path, encoding="utf-8") as fh:
+                summary = json.load(fh)
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.error("Could not read %s for enrichment: %s", path, exc)
+            raise
+
+        summary["classification_breakdown"] = breakdown
+        summary["top_classified_complaints"] = complaints
+
+        classification_section = self._build_classification_text(breakdown, complaints)
+        existing_text = summary.get("structured_text", "")
+        summary["structured_text"] = existing_text + "\n\n" + classification_section
+
+        try:
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(summary, fh, indent=2, ensure_ascii=False)
+            logger.info("findings_summary.json enriched with classification signals.")
+        except OSError as exc:
+            logger.error("Failed to write enriched findings_summary to %s: %s", path, exc)
+            raise
+
+        return True
+
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    def _build_classification_text(
+        self,
+        breakdown: dict[str, dict],
+        complaints: list[dict],
+    ) -> str:
+        """Build the Classification Signals and Top Classified Pain Points sections.
+
+        Args:
+            breakdown:  Output of classification_breakdown().
+            complaints: Output of top_classified_complaints().
+
+        Returns:
+            Formatted multi-section string to append to structured_text.
+        """
+        sections: list[str] = []
+
+        signals_lines = ["## Classification Signals"]
+        for app, areas in sorted(breakdown.items()):
+            signals_lines.append(f"### {app}")
+            sorted_areas = sorted(
+                areas.items(),
+                key=lambda kv: kv[1]["count"],
+                reverse=True,
+            )
+            for area, stats in sorted_areas:
+                signals_lines.append(
+                    f"- {area}: {stats['count']} reviews "
+                    f"({stats['pct_of_low_rated']}% of low-rated)"
+                )
+        sections.append("\n".join(signals_lines))
+
+        if complaints:
+            pain_lines = ["## Top Classified Pain Points"]
+            for c in complaints:
+                snippet = str(c.get("text", ""))[:120]
+                pain_lines.append(
+                    f"- [{c['app_name']} / {c['product_area']}] "
+                    f"\u2605{c['rating']}, {c['thumbs_up']}\U0001f44d: \"{snippet}...\""
+                )
+            sections.append("\n".join(pain_lines))
+
+        return "\n\n".join(sections)
 
     def _build_structured_text(
         self,

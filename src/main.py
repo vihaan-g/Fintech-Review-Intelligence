@@ -162,6 +162,9 @@ def main() -> None:
                         "classification", "complete",
                         {"dry_run": True, "total_classified": 0},
                     )
+                    analyst = SQLAnalyst(db=db)
+                    summarizer = FindingsSummarizer(analyst=analyst)
+                    summarizer.enrich_with_classification()  # logs warning, returns False
                 else:
                     classifier = ReviewClassifier(config=config)
                     processor = BatchProcessor(classifier=classifier, db=db)
@@ -171,6 +174,19 @@ def main() -> None:
                         batch_result.total_classified,
                         batch_result.parse_failures,
                     )
+                    analyst = SQLAnalyst(db=db)
+                    summarizer = FindingsSummarizer(analyst=analyst)
+                    enriched = summarizer.enrich_with_classification()
+                    if enriched:
+                        logger.info("findings_summary.json enriched with classification data")
+                    else:
+                        logger.warning(
+                            "No classified reviews found — findings_summary.json not enriched"
+                        )
+                    db.save_phase_state("classification", "complete", {
+                        "total_classified": batch_result.total_classified,
+                        "parse_failures": batch_result.parse_failures,
+                    })
 
         # ----------------------------------------------------------------
         # Phase 4: Council

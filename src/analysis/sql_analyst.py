@@ -275,3 +275,98 @@ class SQLAnalyst:
                 "most_common_rating": most_common_map.get(app, 0),
             }
         return result
+
+    def classification_breakdown(self) -> dict[str, dict]:
+        """Product area distribution per app for classified low-rated reviews.
+
+        Returns:
+            {
+                "Jupiter": {
+                    "support": {"count": 312, "pct_of_low_rated": 43.1},
+                    "onboarding": {"count": 201, "pct_of_low_rated": 27.8},
+                },
+                ...
+            }
+
+        Filters: rating <= 2, classification IS NOT NULL,
+                 json_extract(classification, '$.parse_failed') = 0.
+        Uses json_extract(classification, '$.product_area').
+        """
+        logger.info("Running classification_breakdown...")
+        sql = """
+        SELECT
+            app_name,
+            json_extract(classification, '$.product_area') AS product_area,
+            COUNT(*)                                        AS count,
+            ROUND(
+                100.0 * COUNT(*) / SUM(COUNT(*)) OVER (PARTITION BY app_name),
+                1
+            )                                               AS pct_of_low_rated
+        FROM reviews
+        WHERE rating <= 2
+          AND classification IS NOT NULL
+          AND json_extract(classification, '$.parse_failed') = 0
+        GROUP BY app_name, product_area
+        ORDER BY app_name ASC, count DESC
+        """
+        rows = self._execute(sql)
+
+        result: dict[str, dict] = {}
+        for row in rows:
+            app = row["app_name"]
+            if app not in result:
+                result[app] = {}
+            result[app][str(row["product_area"])] = {
+                "count": int(row["count"]),
+                "pct_of_low_rated": float(row["pct_of_low_rated"]),
+            }
+        return result
+
+    def top_classified_complaints(self, min_thumbs: int = 5) -> list[dict]:
+        """Top complaints per app with classification label.
+
+        Top 3 per app by thumbs_up where rating <= 2, thumbs_up >= min_thumbs,
+        classification is valid (not null, parse_failed = 0).
+
+        Each entry: {app_name, rating, thumbs_up, product_area,
+                     text (first 200 chars)}
+
+        Args:
+            min_thumbs: Minimum thumbs_up to qualify (default 5).
+        """
+        logger.info("Running top_classified_complaints (min_thumbs=%d)...", min_thumbs)
+        sql = """
+        SELECT
+            app_name,
+            rating,
+            thumbs_up,
+            json_extract(classification, '$.product_area') AS product_area,
+            SUBSTR(text, 1, 200)                           AS text
+        FROM (
+            SELECT
+                app_name,
+                rating,
+                thumbs_up,
+                classification,
+                text,
+                ROW_NUMBER() OVER (PARTITION BY app_name ORDER BY thumbs_up DESC) AS rn
+            FROM reviews
+            WHERE rating <= 2
+              AND thumbs_up >= ?
+              AND classification IS NOT NULL
+              AND json_extract(classification, '$.parse_failed') = 0
+        )
+        WHERE rn <= 3
+        ORDER BY app_name ASC, thumbs_up DESC
+        """
+        rows = self._execute(sql, (min_thumbs,))
+        return [
+            {
+                "app_name": row["app_name"],
+                "rating": int(row["rating"]),
+                "thumbs_up": int(row["thumbs_up"]),
+                "product_area": str(row["product_area"]),
+                "text": str(row["text"]),
+            }
+            for row in rows
+        ]

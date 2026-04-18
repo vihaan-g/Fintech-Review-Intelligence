@@ -844,6 +844,43 @@ def test_batch_processor_iteration_cap():
         assert result.batches_processed <= (5 // processor.BATCH_SIZE) + 6
 
 
+def test_classification_breakdown_empty_on_no_data(tmp_path):
+    """classification_breakdown() returns {} when no classified reviews exist."""
+    with DatabaseManager(db_path=str(tmp_path / "test.db")) as db:
+        db.create_schema()
+        result = SQLAnalyst(db=db).classification_breakdown()
+        assert result == {}
+
+
+def test_enrich_skips_if_no_classified_reviews(tmp_path, monkeypatch):
+    """enrich_with_classification() returns False and leaves file unchanged
+    when no successfully classified reviews exist."""
+    import json as _json
+
+    monkeypatch.chdir(tmp_path)
+    os.makedirs("outputs", exist_ok=True)
+
+    summary = {
+        "structured_text": "## Data Overview\n- test",
+        "cross_app_stats": {},
+        "high_signal_reviews": [],
+        "generated_at": "2026-04-18T00:00:00",
+    }
+    with open("outputs/findings_summary.json", "w") as f:
+        _json.dump(summary, f)
+
+    with DatabaseManager(db_path=str(tmp_path / "test.db")) as db:
+        db.create_schema()
+        enriched = FindingsSummarizer(
+            analyst=SQLAnalyst(db=db)
+        ).enrich_with_classification()
+
+    assert enriched is False
+    with open("outputs/findings_summary.json") as f:
+        result = _json.load(f)
+    assert "classification_breakdown" not in result
+
+
 def test_main_dry_run_completes_without_api_calls():
     """python src/main.py --dry-run completes all phases without errors."""
     import subprocess

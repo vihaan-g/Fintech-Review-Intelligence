@@ -105,7 +105,7 @@ def main() -> None:
                 # Lazy import: google_play_scraper only needed when actually collecting
                 from src.data_collection.review_collector import ReviewCollector  # noqa: PLC0415
                 collector = ReviewCollector(db=db, config=config)
-                result = collector.collect_all(target_per_app=2500)
+                result = collector.collect_all(target_per_app=2200)
                 logger.info(
                     "Collection complete — %d reviews across %d apps",
                     result.total_collected,

@@ -3,7 +3,7 @@
 ## Project Purpose
 
 Python data pipeline to analyze Play Store reviews for Indian fintech apps
-(Fi Money, Jupiter, CRED, PhonePe). Surfaces non-obvious product intelligence
+(Groww, Jupiter, CRED, PhonePe, Paytm). Surfaces non-obvious product intelligence
 via SQL analysis and a 3-stage LLM council adapted from Karpathy's council model.
 Portfolio project targeting APM/BA roles at Indian fintech startups.
 

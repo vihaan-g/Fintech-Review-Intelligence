@@ -147,7 +147,7 @@ class InsightReporter:
         lines = [
             "# Indian Fintech Play Store Intelligence Report",
             "",
-            f"> Generated: {timestamp} | Reviews analysed: {total_reviews:,} | Apps: Fi, Jupiter, CRED, PhonePe",
+            f"> Generated: {timestamp} | Reviews analysed: {total_reviews:,} | Apps: Groww, Jupiter, CRED, PhonePe, Paytm",
             "",
             "## Key Findings",
             "",
@@ -155,8 +155,8 @@ class InsightReporter:
             "",
             "## Analytical Methodology",
             "",
-            f"Data was collected by scraping {total_reviews:,} Play Store reviews across four "
-            "Indian fintech apps: Fi Money, Jupiter, CRED, and PhonePe. "
+            f"Data was collected by scraping {total_reviews:,} Play Store reviews across five "
+            "Indian fintech apps: Groww, Jupiter, CRED, PhonePe, and Paytm. "
             "Reviews span the full available history on the Play Store for each app. "
             "Collection was performed using google-play-scraper with English-language filters applied.",
             "",
@@ -243,13 +243,13 @@ class InsightReporter:
         support = findings[1] if len(findings) > 1 else ""
 
         opener = (
-            f"Analyzed {total:,} Play Store reviews across Fi Money, Jupiter, "
-            "CRED, and PhonePe to surface non-obvious product intelligence "
+            f"Analyzed {total:,} Play Store reviews across Groww, Jupiter, "
+            "CRED, PhonePe, and Paytm to surface non-obvious product intelligence "
             "using SQL analysis and a 4-model LLM council."
             if total
             else (
-                "Analysed Play Store reviews across Fi Money, Jupiter, CRED, "
-                "and PhonePe to surface non-obvious product intelligence using "
+                "Analysed Play Store reviews across Groww, Jupiter, CRED, "
+                "PhonePe, and Paytm to surface non-obvious product intelligence using "
                 "SQL analysis and a 4-model LLM council."
             )
         )
@@ -305,8 +305,8 @@ class InsightReporter:
         lines.extend([
             "## What This Is",
             "",
-            "A Python data pipeline that scrapes Play Store reviews for four Indian fintech apps "
-            "(Fi Money, Jupiter, CRED, PhonePe) and surfaces non-obvious product intelligence "
+            "A Python data pipeline that scrapes Play Store reviews for five Indian fintech apps "
+            "(Groww, Jupiter, CRED, PhonePe, Paytm) and surfaces non-obvious product intelligence "
             "via SQL analysis and a 4-model LLM council adapted from Karpathy's council model. "
             "Built as a portfolio project targeting APM/BA roles at Indian fintech startups.",
             "",
@@ -320,7 +320,7 @@ class InsightReporter:
             "## Architecture",
             "",
             "```",
-            "Play Store (4 apps)",
+            "Play Store (5 apps)",
             "      ↓ google-play-scraper",
             "SQLite DB (reviews.db)",
             "      ↓ SQLAnalyst (6 queries)",

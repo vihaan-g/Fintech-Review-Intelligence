@@ -51,15 +51,17 @@ class ReviewCollector:
     # Verification cross-checks: developer name match, English review content
     # mentioning the app, and >=5 reviews returned. Do NOT change without
     # re-running the verification step in scripts/verify_app_ids.py-style flow.
-    #   Fi Money  → epiFi Technologies Private Limited
-    #   Jupiter   → Amica Financial Technologies Private Limited
-    #   CRED      → Dreamplug Technologies Private Limited
-    #   PhonePe   → PhonePe
+    #   Groww    → Billionbrains Garage Ventures (package: com.nextbillion.groww)
+    #   Jupiter  → Amica Financial Technologies Private Limited
+    #   CRED     → Dreamplug Technologies Private Limited
+    #   PhonePe  → PhonePe
+    #   Paytm    → Paytm - One97 Communications Ltd.
     APP_TARGETS: dict[str, str] = {
-        "Fi Money": "com.epifi.paisa",
+        "Groww": "com.nextbillion.groww",
         "Jupiter": "money.jupiter",
         "CRED": "com.dreamplug.androidapp",
         "PhonePe": "com.phonepe.app",
+        "Paytm": "net.one97.paytm",
     }
 
     def __init__(self, db: DatabaseManager, config: Config) -> None:
@@ -73,7 +75,7 @@ class ReviewCollector:
         self._db = db
         self._config = config
 
-    def collect_all(self, target_per_app: int = 2500) -> CollectionResult:
+    def collect_all(self, target_per_app: int = 2200) -> CollectionResult:
         """Run collection for all apps. Returns CollectionResult.
 
         For each app:
@@ -170,7 +172,7 @@ class ReviewCollector:
         Adds 0.5s sleep between pagination calls (rate limit protection).
 
         Args:
-            app_id: Play Store package identifier (e.g. 'com.epifi.fi').
+            app_id: Play Store package identifier (e.g. 'com.nextbillion.groww').
             app_name: Human-readable app name added to every review dict.
             count: Target number of reviews to collect.
 

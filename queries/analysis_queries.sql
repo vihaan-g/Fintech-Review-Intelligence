@@ -2,7 +2,7 @@
 -- Fintech Review Intelligence — Analysis Queries
 -- =============================================================================
 -- Portfolio artifact. Each query answers a specific product-intelligence
--- question about Play Store reviews for Fi Money, Jupiter, CRED, PhonePe.
+-- question about Play Store reviews for Groww, Jupiter, CRED, PhonePe, Paytm.
 -- All queries use parameterized placeholders (?) where user-supplied values
 -- appear. No f-string interpolation is used in the Python layer.
 -- =============================================================================

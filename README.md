@@ -1,7 +1,7 @@
 # Fintech Review Intelligence
 
-A Python data pipeline that scrapes Play Store reviews for four Indian fintech
-apps (Fi Money, Jupiter, CRED, PhonePe) and surfaces non-obvious product
+A Python data pipeline that scrapes Play Store reviews for five Indian fintech
+apps (Groww, Jupiter, CRED, PhonePe, Paytm) and surfaces non-obvious product
 intelligence via SQL analysis and a 4-model LLM council adapted from
 Karpathy's council model.
 
@@ -12,7 +12,7 @@ fintech startups.
 
 The pipeline does five things in order:
 
-1. **Collect** — scrape Play Store reviews (India, English) for four apps
+1. **Collect** — scrape Play Store reviews (India, English) for five apps
    using `google-play-scraper`, store them in a single SQLite database
    with WAL mode enabled.
 2. **Analyse (SQL)** — run six analytical queries (rating distribution,
@@ -49,7 +49,7 @@ where it left off on the next invocation.
 ## Architecture
 
 ```
-Play Store (4 apps)
+Play Store (5 apps)
       ↓ google-play-scraper
 SQLite DB (reviews.db)
       ↓ SQLAnalyst (6 queries)

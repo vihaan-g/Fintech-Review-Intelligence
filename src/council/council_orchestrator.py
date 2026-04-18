@@ -49,8 +49,8 @@ class CouncilOrchestrator:
 
     STAGE1_PROMPT: str = """You are a senior product analyst specializing in Indian consumer fintech.
 
-Below are findings from analyzing Play Store reviews across four apps:
-Fi Money, Jupiter, CRED, and PhonePe.
+Below are findings from analyzing Play Store reviews across five apps:
+Groww, Jupiter, CRED, PhonePe, and Paytm.
 
 --- FINDINGS ---
 {findings_summary}
@@ -103,7 +103,7 @@ Output rules:
 - The Assessment field must appear before Category on every item — write your reasoning before committing to a label.
 - Total response: under 450 words."""
 
-    STAGE3_PROMPT: str = """You are the chairman of a 4-model LLM council synthesizing a final product intelligence report on Indian fintech Play Store reviews (Fi Money, Jupiter, CRED, PhonePe).
+    STAGE3_PROMPT: str = """You are the chairman of a 4-model LLM council synthesizing a final product intelligence report on Indian fintech Play Store reviews (Groww, Jupiter, CRED, PhonePe, Paytm).
 
 --- STAGE 1: Independent findings from all 4 analysts ---
 {stage1_outputs}
@@ -134,7 +134,7 @@ Lead with the finding that would most change a PM's near-term roadmap priorities
 
 One paragraph per app. Each paragraph must name one specific metric or pattern from Stage 1 and state one concrete implication for that app's product team. Do not repeat findings already covered in Key Findings — this section adds app-specific color not captured above.
 
-Apps: Fi Money | Jupiter | CRED | PhonePe
+Apps: Groww | Jupiter | CRED | PhonePe | Paytm
 
 ## Cross-App Pattern
 

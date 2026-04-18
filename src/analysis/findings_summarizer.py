@@ -55,7 +55,7 @@ class FindingsSummarizer:
         [2-3 observations across multiple apps with specific metrics and numbers]
 
         ## App-Specific Signals
-        ### Fi Money / Jupiter / CRED / PhonePe
+        ### Groww / Jupiter / CRED / PhonePe / Paytm
         [2-3 bullets with specific numbers per app]
 
         ## High-Signal Pain Points (validated by other users)
@@ -272,7 +272,7 @@ class FindingsSummarizer:
 
         # -- App-Specific Signals -------------------------------------
         signals_lines = ["## App-Specific Signals"]
-        target_apps = ["Fi Money", "Jupiter", "CRED", "PhonePe"]
+        target_apps = ["Groww", "Jupiter", "CRED", "PhonePe", "Paytm"]
         all_apps = sorted(cross_app.keys())
         display_apps = target_apps if any(a in cross_app for a in target_apps) else all_apps
 

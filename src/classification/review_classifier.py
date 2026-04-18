@@ -69,7 +69,7 @@ class ReviewClassifier:
 
     SINGLE_REVIEW_PROMPT: str = (
         "You are a classification engine for Play Store reviews of Indian fintech apps "
-        "(Fi Money, Jupiter, CRED, PhonePe).\n\n"
+        "(Groww, Jupiter, CRED, PhonePe, Paytm).\n\n"
         "TASK: Classify the review below into exactly one product area and extract a "
         "specific feature request if and only if one is explicitly stated in the review text.\n\n"
         "PRODUCT AREAS (choose exactly one):\n"
@@ -98,7 +98,7 @@ class ReviewClassifier:
 
     BATCH_CLASSIFICATION_PROMPT: str = (
         "You are a classification engine for Play Store reviews of Indian fintech apps "
-        "(Fi Money, Jupiter, CRED, PhonePe).\n\n"
+        "(Groww, Jupiter, CRED, PhonePe, Paytm).\n\n"
         "TASK: Classify each review in the numbered list below. Return a JSON array of "
         "the same length in the same order.\n\n"
         "PRODUCT AREAS (choose exactly one per review):\n"

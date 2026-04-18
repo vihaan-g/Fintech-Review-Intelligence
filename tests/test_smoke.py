@@ -522,7 +522,7 @@ def test_council_member_strips_think_tags():
     member = CouncilMember(
         name="Test",
         provider="gemini",
-        model_id="gemini-2.5-flash",
+        model_id="gemini-2.5-flash-lite",
         config=config,
     )
     raw = "<think>some reasoning here</think>Actual insight about CRED."
@@ -537,7 +537,7 @@ def test_council_member_strips_multiline_think_tags():
     os.environ.setdefault("GEMINI_API_KEY", "test_key")
     os.environ.setdefault("OPENROUTER_API_KEY", "test_key")
     config = Config.from_env()
-    member = CouncilMember("Test", "gemini", "gemini-2.5-flash", config)
+    member = CouncilMember("Test", "gemini", "gemini-2.5-flash-lite", config)
     raw = "<think>\nline 1\nline 2\n</think>\nFinal answer."
     result = member._strip_think_tags(raw)
     assert result.strip() == "Final answer."

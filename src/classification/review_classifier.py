@@ -167,7 +167,7 @@ class ReviewClassifier:
         return self._parse_batch_response(raw, batch_size=len(reviews))
 
     def _call_gemini(self, prompt: str) -> str:
-        """Make a single synchronous HTTP POST to Gemini 2.5 Flash.
+        """Make a single synchronous HTTP POST to Gemini 2.5 Flash Lite.
 
         Includes generationConfig with temperature=0.1 and responseMimeType
         "application/json" to reduce prose wrapping and non-JSON output.

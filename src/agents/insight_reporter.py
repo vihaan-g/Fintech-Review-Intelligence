@@ -211,7 +211,7 @@ class InsightReporter:
             "## Data Notes",
             "",
             "- Reviews sourced from Play Store (English, India region)",
-            "- Classification model: Gemini 2.5 Flash (free tier)",
+            "- Classification model: Gemini 2.5 Flash Lite (free tier)",
             "- Council: 3-stage Karpathy-adapted deliberation, 4 models",
             "- All findings reflect user sentiment at time of collection",
             "- Limitations: English reviews only, no account for fake reviews",
@@ -325,7 +325,7 @@ class InsightReporter:
             "SQLite DB (reviews.db)",
             "      ↓ SQLAnalyst (6 queries)",
             "Findings Summary",
-            "      ↓ Gemini 2.5 Flash (batch classification)",
+            "      ↓ Gemini 2.5 Flash Lite (batch classification)",
             "Classification Results",
             "      ↓ 4-Model Council (Karpathy-adapted)",
             "      │  Stage 1: Parallel independent insights",
@@ -342,7 +342,7 @@ class InsightReporter:
             "## Tech Stack",
             "",
             "- Python 3.11, SQLite, google-play-scraper",
-            "- Classification: Gemini 2.5 Flash (Google AI Studio free tier)",
+            "- Classification: Gemini 2.5 Flash Lite (Google AI Studio free tier)",
             "- Council: Gemini 3 Flash Preview (chairman) + Nemotron 3 Super 120B + "
             "Qwen3-Next 80B + Llama 3.3 70B Instruct (all OpenRouter :free)",
         ])

@@ -21,7 +21,7 @@ The pipeline does five things in order:
    structured findings summary.
 3. **Classify** — batch-classify every review into product areas
    (onboarding, UX, transactions, support, performance, trust) using
-   Gemini 2.5 Flash. Rate-limited to stay inside the 15 RPM / 1500-per-day
+   Gemini 2.5 Flash Lite. Rate-limited to stay inside the 14 RPM / 1000-per-day
    free tier.
 4. **Council** — run a 3-stage LLM deliberation:
    - Stage 1: four models generate insights independently, in parallel.
@@ -54,7 +54,7 @@ Play Store (4 apps)
 SQLite DB (reviews.db)
       ↓ SQLAnalyst (6 queries)
 Findings Summary (outputs/findings_summary.json)
-      ↓ Gemini 2.5 Flash (batch classification)
+      ↓ Gemini 2.5 Flash Lite (batch classification)
 Classification Results
       ↓ 4-Model Council (Karpathy-adapted)
       │  Stage 1: Parallel independent insights
@@ -67,7 +67,7 @@ outputs/linkedin_snippet.txt
 ## Tech Stack
 
 - Python 3.11, SQLite (WAL mode), `google-play-scraper`
-- Classification: Gemini 2.5 Flash (Google AI Studio free tier)
+- Classification: Gemini 2.5 Flash Lite (Google AI Studio free tier)
 - Council chairman: Gemini 3 Flash Preview (Google AI Studio free tier)
 - Council members: DeepSeek R1, Qwen3-235B-A22B, Llama 4 Maverick
   (all OpenRouter `:free`)

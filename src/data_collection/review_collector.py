@@ -11,6 +11,19 @@ from src.data_collection.database_manager import DatabaseManager
 
 logger = logging.getLogger(__name__)
 
+
+class PartialCollectionError(RuntimeError):
+    """Raised by collect_app when scraping aborts before the target is met.
+
+    Carries the partial reviews collected so collect_all can still insert
+    them, but signals that the phase must NOT be marked 'complete' — the next
+    run should retry.
+    """
+
+    def __init__(self, message: str, partial: list[dict]) -> None:
+        super().__init__(message)
+        self.partial = partial
+
 _SLEEP_BETWEEN_PAGES: float = 0.5
 _SLEEP_BETWEEN_APPS: float = 2.0
 _EMPTY_PAGE_MAX_RETRIES: int = 3
@@ -100,8 +113,35 @@ class ReviewCollector:
             try:
                 collected = self.collect_app(app_id, app_name, target_per_app)
                 inserted = self._db.insert_reviews(collected)
+            except PartialCollectionError as exc:
+                # Still persist what we got, but mark 'failed' so the next run
+                # retries this app instead of silently skipping forever.
+                try:
+                    inserted = self._db.insert_reviews(exc.partial)
+                except Exception as insert_exc:  # noqa: BLE001
+                    logger.error(
+                        "Could not persist partial reviews for %s: %s",
+                        app_name, insert_exc,
+                    )
+                    inserted = 0
+                logger.error(
+                    "Partial collection for %s: inserted %d of %d target. "
+                    "Marking phase 'failed' so re-run retries. Reason: %s",
+                    app_name, inserted, target_per_app, exc,
+                )
+                self._db.save_phase_state(
+                    phase_key,
+                    "failed",
+                    {"error": str(exc), "partial_count": inserted},
+                )
+                per_app[app_name] = inserted
+                continue
             except Exception as exc:
-                logger.error("Failed to collect reviews for %s: %s", app_name, exc)
+                logger.error(
+                    "Failed to collect reviews for %s: %s. Phase marked "
+                    "'failed' — re-run to retry this app.",
+                    app_name, exc,
+                )
                 self._db.save_phase_state(phase_key, "failed", {"error": str(exc)})
                 per_app[app_name] = 0
                 continue
@@ -158,7 +198,11 @@ class ReviewCollector:
                     continuation_token,
                     exc,
                 )
-                break
+                raise PartialCollectionError(
+                    f"Scrape aborted mid-pagination for {app_name}: "
+                    f"{type(exc).__name__}: {exc}",
+                    partial=collected,
+                ) from exc
 
             if not result:
                 # B5: empty page may be a Play Store rate-limit, not true end-of-stream.
@@ -194,11 +238,16 @@ class ReviewCollector:
                             break
                         empty_page_retry += 1
                     if not result:
-                        logger.info(
-                            "No reviews returned for %s after %d retries — skipping.",
-                            app_name, _EMPTY_PAGE_MAX_RETRIES,
+                        # All retries returned empty first page — very likely a
+                        # sustained Play Store throttle, not true end-of-stream.
+                        # Raise so the phase is marked 'failed' and the next
+                        # run retries instead of silently skipping this app.
+                        raise PartialCollectionError(
+                            f"Empty first page for {app_name} after "
+                            f"{_EMPTY_PAGE_MAX_RETRIES} retries — likely rate "
+                            "limited. Re-run later to retry.",
+                            partial=collected,
                         )
-                        break
                 else:
                     logger.info(
                         "No more reviews returned for %s after %d collected.",

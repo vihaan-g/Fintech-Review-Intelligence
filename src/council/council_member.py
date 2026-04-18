@@ -1,5 +1,7 @@
 """Represents a single LLM council member and its API call logic."""
+import asyncio
 import logging
+import random
 import re
 import time
 from dataclasses import dataclass
@@ -20,6 +22,10 @@ _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 
 _TIMEOUT_GEMINI = 30.0
 _TIMEOUT_OPENROUTER = 90.0  # Qwen3-235B can be slow
+
+_MAX_RETRIES = 3
+_RETRYABLE_STATUS_CODES = frozenset([429, 500, 502, 503, 504])
+_BACKOFF_BASE_SECONDS = 5.0
 
 
 @dataclass
@@ -98,19 +104,38 @@ class CouncilMember:
             clean = self._strip_think_tags(raw)
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code
-            if 400 <= status < 500:
+            if 400 <= status < 500 and status != 429:
                 # Fatal: wrong model ID (404), bad auth (401/403), bad request (400).
                 # Propagate so the orchestrator surfaces the failure clearly.
+                # Note: 429 is retryable inside _post_with_retries; if it escapes
+                # here, all retries are exhausted — treat as non-fatal empty.
+                body_snippet = ""
+                try:
+                    body_snippet = exc.response.text[:200]
+                except Exception:  # noqa: BLE001
+                    pass
                 logger.error(
-                    "CouncilMember %s — fatal HTTP %d, not retrying",
-                    self.name, status,
+                    "CouncilMember %s — fatal HTTP %d, not retrying. Body: %s",
+                    self.name, status, body_snippet,
                 )
                 raise
-            logger.warning("CouncilMember %s HTTP error: %s", self.name, exc)
-            raw = str(exc)
+            logger.warning(
+                "CouncilMember %s HTTP %s after retries: %s",
+                self.name, status, exc,
+            )
+            raw = f"[error: HTTP {status} after retries] {exc}"
+        except httpx.TransportError as exc:
+            logger.warning(
+                "CouncilMember %s transport error (%s) after retries: %s",
+                self.name, type(exc).__name__, exc,
+            )
+            raw = f"[error: {type(exc).__name__} after retries] {exc}"
         except Exception as exc:  # noqa: BLE001
-            logger.warning("CouncilMember %s error: %s", self.name, exc)
-            raw = str(exc)
+            logger.warning(
+                "CouncilMember %s unexpected error (%s): %s",
+                self.name, type(exc).__name__, exc,
+            )
+            raw = f"[error: {type(exc).__name__}] {exc}"
         duration_ms = int((time.monotonic() - start) * 1000)
         return MemberResponse(
             member_name=self.name,
@@ -124,6 +149,58 @@ class CouncilMember:
     def _strip_think_tags(self, text: str) -> str:
         """Remove <think>...</think> blocks including content."""
         return _THINK_RE.sub("", text).strip()
+
+    async def _post_with_retries(
+        self,
+        client: httpx.AsyncClient,
+        url: str,
+        json_body: dict,
+        headers: dict,
+    ) -> httpx.Response:
+        """POST with bounded retry on transient failures.
+
+        Retries on:
+          - httpx.TransportError (ConnectError, ReadTimeout, RemoteProtocolError,
+            PoolTimeout, ReadError, WriteError, LocalProtocolError, etc.)
+          - Retryable HTTP status codes (429, 500, 502, 503, 504)
+
+        Non-retryable 4xx (400/401/403/404) propagate immediately via
+        raise_for_status() so the orchestrator can surface bad-key / bad-model
+        failures without burning 2 minutes of backoff first.
+        """
+        last_exc: Exception = RuntimeError("All retries exhausted")
+        for attempt in range(_MAX_RETRIES):
+            try:
+                resp = await client.post(url, json=json_body, headers=headers)
+                if resp.status_code in _RETRYABLE_STATUS_CODES:
+                    last_exc = httpx.HTTPStatusError(
+                        f"HTTP {resp.status_code}",
+                        request=resp.request, response=resp,
+                    )
+                    logger.warning(
+                        "CouncilMember %s retryable HTTP %d on attempt %d/%d",
+                        self.name, resp.status_code, attempt + 1, _MAX_RETRIES,
+                    )
+                else:
+                    # Fatal 4xx will raise here; 2xx returns the response.
+                    resp.raise_for_status()
+                    return resp
+            except httpx.TransportError as exc:
+                last_exc = exc
+                logger.warning(
+                    "CouncilMember %s network error (%s) on attempt %d/%d: %s",
+                    self.name, type(exc).__name__, attempt + 1, _MAX_RETRIES, exc,
+                )
+
+            if attempt < _MAX_RETRIES - 1:
+                delay = _BACKOFF_BASE_SECONDS * (2 ** attempt) + random.uniform(0, 1.5)
+                logger.info(
+                    "CouncilMember %s sleeping %.1fs before retry %d/%d",
+                    self.name, delay, attempt + 2, _MAX_RETRIES,
+                )
+                await asyncio.sleep(delay)
+
+        raise last_exc
 
     async def _call_gemini(self, prompt: str, client: httpx.AsyncClient) -> str:
         """POST to Gemini via Google AI Studio for any Gemini model.
@@ -145,8 +222,7 @@ class CouncilMember:
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {"temperature": 0.3},
         }
-        resp = await client.post(url, json=body, headers=headers)
-        resp.raise_for_status()
+        resp = await self._post_with_retries(client, url, body, headers)
         data = resp.json()
 
         # Prompt-level block (before any candidate is generated)
@@ -220,8 +296,7 @@ class CouncilMember:
             "model": self.model_id,
             "messages": [{"role": "user", "content": prompt}],
         }
-        resp = await client.post(_OPENROUTER_ENDPOINT, json=body, headers=headers)
-        resp.raise_for_status()
+        resp = await self._post_with_retries(client, _OPENROUTER_ENDPOINT, body, headers)
         data = resp.json()
 
         # Some OpenRouter providers wrap upstream errors in a 200 response with

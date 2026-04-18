@@ -243,10 +243,17 @@ class ReviewClassifier:
                     "Retryable HTTP %d on attempt %d/%d",
                     status, attempt + 1, _MAX_RETRIES,
                 )
-            except (httpx.ConnectError, httpx.ReadTimeout, httpx.TimeoutException) as exc:
+            except httpx.TransportError as exc:
+                # TransportError covers TimeoutException, NetworkError
+                # (ConnectError, ReadError, WriteError, CloseError), ProtocolError
+                # (RemoteProtocolError, LocalProtocolError), ProxyError, PoolTimeout.
+                # Without this, a mid-run network blip would propagate to
+                # classify_batch and mark the whole batch parse_failed instead of
+                # retrying through the same path as 5xx responses.
                 last_exc = exc
                 self._logger.warning(
-                    "Network error on attempt %d/%d: %s", attempt + 1, _MAX_RETRIES, exc,
+                    "Network error (%s) on attempt %d/%d: %s",
+                    type(exc).__name__, attempt + 1, _MAX_RETRIES, exc,
                 )
 
             if attempt < _MAX_RETRIES - 1:

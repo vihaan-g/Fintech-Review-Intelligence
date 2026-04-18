@@ -317,6 +317,20 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
         t2_ms = int((time.monotonic() - t2_start) * 1000)
         logger.info("Council Stage 2 complete — gap analysis in %dms", t2_ms)
         stage2_gap_analysis = stage2_resp.clean_response
+        if not stage2_gap_analysis.strip():
+            # Not fatal — stage 3 can still synthesise from stage 1 alone,
+            # but the user should know the gap analysis is missing so they
+            # can judge whether to re-run.
+            logger.warning(
+                "Stage 2 gap analysis is empty — chairman may have been "
+                "safety-filtered or rate-limited. Stage 3 will proceed with "
+                "stage 1 responses only. Check council_stage1_raw.json and "
+                "re-run if a cleaner synthesis is needed."
+            )
+            stage2_gap_analysis = (
+                "[Stage 2 gap analysis unavailable — chairman returned empty. "
+                "Stage 3 synthesis relies on Stage 1 responses only.]"
+            )
 
         # -------------------------------------------------------------------
         # Stage 3 — chairman synthesis
@@ -415,7 +429,20 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
                 json.dump(raw, fh, indent=2, ensure_ascii=False)
             logger.info("Council result saved to %s", output_path)
         except OSError as exc:
-            logger.error("Failed to save council result: %s", exc)
+            # Do not swallow — the report phase depends on this file, and 2h of
+            # council work is about to be lost. Re-raise with a message that
+            # tells the user exactly where to look.
+            logger.error(
+                "Failed to save council result to %s: %s. "
+                "Council output is in memory but could not be persisted — "
+                "check filesystem space and permissions on outputs/.",
+                output_path, exc,
+            )
+            raise RuntimeError(
+                f"Could not write {output_path}: {exc}. "
+                "Council ran successfully but the result was not persisted. "
+                "Check that outputs/ is writable and has disk space, then re-run."
+            ) from exc
 
         # H8: pipeline_state.json is never read — canonical state lives in the DB.
         # Removed the dead JSON state write.

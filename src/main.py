@@ -271,11 +271,58 @@ def main() -> None:
     logger.info("Pipeline complete")
 
 
+def _format_recovery_hint(exc: BaseException) -> str:
+    """Map common exceptions to one-line recovery hints for the operator.
+
+    The pipeline runs unattended for ~2 hours; a raw traceback at the end is
+    not enough context for someone who didn't write this code to recover.
+    """
+    # Avoid import-at-top cycles — these classes are only needed for the hint.
+    from src.classification.review_classifier import (  # noqa: PLC0415
+        GeminiAuthError, GeminiQuotaExhaustedError,
+    )
+    if isinstance(exc, GeminiAuthError):
+        return (
+            "Fix: verify GEMINI_API_KEY in .env is correct and active at "
+            "https://aistudio.google.com/app/apikey — then re-run; completed "
+            "phases will be skipped."
+        )
+    if isinstance(exc, GeminiQuotaExhaustedError):
+        return (
+            "Fix: Gemini free-tier daily quota (1,500 req/day) is exhausted. "
+            "Wait until UTC midnight, then re-run — classification will "
+            "resume from checkpoint."
+        )
+    if isinstance(exc, FileNotFoundError):
+        return (
+            "Fix: re-run with no --phase flag. Earlier phases will regenerate "
+            "the missing file."
+        )
+    if isinstance(exc, ValueError) and "Missing required environment" in str(exc):
+        return (
+            "Fix: copy .env.example to .env and fill in GEMINI_API_KEY and "
+            "OPENROUTER_API_KEY, then re-run."
+        )
+    if isinstance(exc, RuntimeError) and "All Stage 1 members returned empty" in str(exc):
+        return (
+            "Fix: check outputs/council_stage1_raw.json for the raw responses. "
+            "Most likely causes: (1) OpenRouter :free daily quota hit — wait "
+            "and re-run, (2) bad OPENROUTER_API_KEY, (3) model IDs withdrawn "
+            "from free tier (update council_orchestrator.default())."
+        )
+    return (
+        "Fix: inspect the traceback above, check outputs/ for partial state, "
+        "and re-run — completed phases are checkpointed and will be skipped."
+    )
+
+
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
         pass  # handled by SIGINT handler installed in main()
     except Exception as exc:  # noqa: BLE001
-        logging.getLogger(__name__).error("Pipeline failed: %s", exc, exc_info=True)
+        _logger = logging.getLogger(__name__)
+        _logger.error("Pipeline failed: %s: %s", type(exc).__name__, exc, exc_info=True)
+        _logger.error("Recovery: %s", _format_recovery_hint(exc))
         sys.exit(1)

@@ -180,12 +180,34 @@ class BatchProcessor:
         return result_summary
 
     def _save_result(self, result: BatchResult) -> None:
-        """Serialize BatchResult to outputs/classification_complete.json."""
-        os.makedirs("outputs", exist_ok=True)
+        """Serialize BatchResult to outputs/classification_complete.json.
+
+        Canonical state lives in pipeline_state (DB). This file is debug
+        metadata — a failure here is logged loudly with the counts embedded so
+        the user can reconstruct progress without the file, but does not abort
+        the pipeline (phase status is already written to the DB).
+        """
+        try:
+            os.makedirs("outputs", exist_ok=True)
+        except OSError as exc:
+            self._logger.error(
+                "Could not create outputs/ directory for BatchResult debug "
+                "file: %s. DB phase state is authoritative — classified=%d, "
+                "failures=%d, batches=%d.",
+                exc, result.total_classified, result.parse_failures, result.batches_processed,
+            )
+            return
+
         output_path = "outputs/classification_complete.json"
         try:
             with open(output_path, "w", encoding="utf-8") as f:
                 json.dump(asdict(result), f, indent=2)
             self._logger.info("BatchResult saved to %s", output_path)
         except OSError as exc:
-            self._logger.error("Failed to save BatchResult: %s", exc)
+            self._logger.error(
+                "Failed to save BatchResult debug file to %s: %s. "
+                "DB phase state is authoritative — classified=%d, failures=%d, "
+                "batches=%d. Pipeline will continue.",
+                output_path, exc,
+                result.total_classified, result.parse_failures, result.batches_processed,
+            )

@@ -10,7 +10,7 @@ Portfolio project targeting APM/BA roles at Indian fintech startups.
 ## Tech Stack
 
 - Python 3.11+, SQLite (WAL mode), google-play-scraper
-- Classification: Gemini 2.5 Flash via Google AI Studio free tier (1,500 req/day)
+- Classification: Gemini 2.5 Flash Lite via Google AI Studio free tier (1,000 req/day)
 - Council Chairman: Gemini 3 Flash Preview (gemini-3-flash-preview)
   via Google AI Studio free tier — better reasoning for synthesis,
   dynamic thinking enabled by default

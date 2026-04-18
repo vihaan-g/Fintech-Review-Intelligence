@@ -1,4 +1,4 @@
-"""Classifies Play Store reviews using Gemini 2.5 Flash."""
+"""Classifies Play Store reviews using Gemini 2.5 Flash Lite."""
 import json
 import logging
 import random
@@ -12,7 +12,7 @@ from src.config import Config
 
 _GEMINI_ENDPOINT = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
-    "gemini-2.5-flash:generateContent"
+    "gemini-2.5-flash-lite:generateContent"
 )
 _MAX_RETRIES = 5
 _RETRYABLE_STATUS_CODES = frozenset([429, 500, 502, 503])
@@ -23,7 +23,7 @@ _BACKOFF_BASE_SECONDS = 10.0
 class GeminiQuotaExhaustedError(RuntimeError):
     """Raised when Gemini returns 429 after all retries are exhausted.
 
-    Signals that the free-tier daily quota (1,500 req/day) is likely hit.
+    Signals that the free-tier daily quota (1,000 req/day) is likely hit.
     BatchProcessor catches this, checkpoints progress, and exits cleanly
     so the run can resume tomorrow.
     """
@@ -59,7 +59,7 @@ class ClassificationResult:
 
 
 class ReviewClassifier:
-    """Classifies Play Store reviews using Gemini 2.5 Flash.
+    """Classifies Play Store reviews using Gemini 2.5 Flash Lite.
 
     Uses prompt-optimizer output for classification prompts.
     Never raises on parse failure — returns low-confidence result instead.
@@ -290,7 +290,7 @@ class ReviewClassifier:
         if saw_429:
             raise GeminiQuotaExhaustedError(
                 "Gemini returned 429 on every retry — daily quota likely "
-                "exhausted (1,500 req/day on the free tier). Progress has "
+                "exhausted (1,000 req/day on the free tier). Progress has "
                 "been checkpointed; re-run tomorrow to resume."
             )
         if isinstance(last_exc, httpx.TransportError):

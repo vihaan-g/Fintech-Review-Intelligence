@@ -335,7 +335,7 @@ def _format_recovery_hint(exc: BaseException) -> str:
         )
     if isinstance(exc, GeminiQuotaExhaustedError):
         return (
-            "Fix: Gemini free-tier daily quota (1,500 req/day) is exhausted. "
+            "Fix: Gemini free-tier daily quota (1,000 req/day) is exhausted. "
             "Wait until UTC midnight, then re-run — classification will "
             "resume from checkpoint."
         )

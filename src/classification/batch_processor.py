@@ -32,13 +32,13 @@ class BatchProcessor:
 
     Applies cost-aware-llm-pipeline patterns:
     - Batches reviews to minimise API calls
-    - Respects Gemini free tier rate limit (15 RPM = 4s sleep between calls)
+    - Respects Gemini free tier rate limit (14 RPM = 4.3s sleep between calls)
     - Checkpoints after each batch so interrupted runs resume correctly
     - Estimates token cost before starting full run
     """
 
     BATCH_SIZE: int = 10
-    SLEEP_BETWEEN_BATCHES: float = 4.1  # keeps under 15 RPM with margin
+    SLEEP_BETWEEN_BATCHES: float = 4.3  # keeps under 14 RPM (60/14 ≈ 4.29s)
 
     def __init__(self, classifier: ReviewClassifier, db: DatabaseManager) -> None:
         """Initialise processor with injected classifier and database."""
@@ -53,7 +53,7 @@ class BatchProcessor:
         1. Check pipeline_state 'classification' — if 'complete', log and return
            BatchResult with zeros (do not re-classify)
         2. Estimate total API calls needed: ceil(unclassified_count / BATCH_SIZE)
-           Log: "Classification estimate: {n} batches, ~{minutes}min at 15 RPM"
+           Log: "Classification estimate: {n} batches, ~{minutes}min at 14 RPM"
         3. Mark pipeline_state 'classification' as 'in_progress'
         4. Loop: fetch BATCH_SIZE unclassified reviews, classify, save to DB
         5. Log every 10 batches:
@@ -93,7 +93,7 @@ class BatchProcessor:
         n_batches = math.ceil(unclassified_total / self.BATCH_SIZE)
         est_minutes = (n_batches * self.SLEEP_BETWEEN_BATCHES) / 60.0
         self._logger.info(
-            "Classification estimate: %d batches, ~%.1fmin at 15 RPM",
+            "Classification estimate: %d batches, ~%.1fmin at 14 RPM",
             n_batches, est_minutes,
         )
 
@@ -175,7 +175,7 @@ class BatchProcessor:
                     total_classified, unclassified_total, pct, parse_failures,
                 )
 
-            # Step 6: sleep to respect 15 RPM free tier limit
+            # Step 6: sleep to respect 14 RPM free tier limit
             time.sleep(self.SLEEP_BETWEEN_BATCHES)
 
         duration = time.monotonic() - start_time

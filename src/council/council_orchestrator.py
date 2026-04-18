@@ -175,12 +175,20 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
     def default(cls, config: Config) -> "CouncilOrchestrator":
         """Factory: instantiate with the standard 4-model council.
 
+        Model IDs verified live against the OpenRouter `/models` and Google
+        AI Studio `/models` listings on 2026-04-18. The originally targeted
+        ``deepseek/deepseek-r1:free``, ``qwen/qwen3-235b-a22b:free`` and
+        ``meta-llama/llama-4-maverick:free`` slugs were withdrawn from the
+        OpenRouter free tier; they are replaced below by current,
+        equivalently-positioned :free models that preserve the diversity
+        intent (reasoning / Alibaba MoE / Meta Western).
+
         Chairman: Gemini 3 Flash Preview
         Members:
           - Gemini 3 Flash Preview (provider='gemini',     model_id='gemini-3-flash-preview')
-          - DeepSeek R1            (provider='openrouter', model_id='deepseek/deepseek-r1:free')
-          - Qwen3-235B-A22B        (provider='openrouter', model_id='qwen/qwen3-235b-a22b:free')
-          - Llama 4 Maverick       (provider='openrouter', model_id='meta-llama/llama-4-maverick:free')
+          - Nemotron 3 Super 120B  (provider='openrouter', model_id='nvidia/nemotron-3-super-120b-a12b:free')
+          - Qwen3-Next 80B         (provider='openrouter', model_id='qwen/qwen3-next-80b-a3b-instruct:free')
+          - Llama 3.3 70B Instruct (provider='openrouter', model_id='meta-llama/llama-3.3-70b-instruct:free')
 
         Chairman is Gemini — also participates as a council member in Stage 1.
         The same CouncilMember instance is used for both roles.
@@ -194,21 +202,21 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
         members: list[CouncilMember] = [
             chairman,
             CouncilMember(
-                name="DeepSeek R1",
+                name="Nemotron 3 Super 120B",
                 provider="openrouter",
-                model_id="deepseek/deepseek-r1:free",
+                model_id="nvidia/nemotron-3-super-120b-a12b:free",
                 config=config,
             ),
             CouncilMember(
-                name="Qwen3-235B-A22B",
+                name="Qwen3-Next 80B",
                 provider="openrouter",
-                model_id="qwen/qwen3-235b-a22b:free",
+                model_id="qwen/qwen3-next-80b-a3b-instruct:free",
                 config=config,
             ),
             CouncilMember(
-                name="Llama 4 Maverick",
+                name="Llama 3.3 70B Instruct",
                 provider="openrouter",
-                model_id="meta-llama/llama-4-maverick:free",
+                model_id="meta-llama/llama-3.3-70b-instruct:free",
                 config=config,
             ),
         ]

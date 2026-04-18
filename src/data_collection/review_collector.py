@@ -34,9 +34,17 @@ class ReviewCollector:
     Checkpoints after each app completes, not at the end of the full run.
     """
 
+    # App IDs verified live against Play Store on 2026-04-18.
+    # Verification cross-checks: developer name match, English review content
+    # mentioning the app, and >=5 reviews returned. Do NOT change without
+    # re-running the verification step in scripts/verify_app_ids.py-style flow.
+    #   Fi Money  → epiFi Technologies Private Limited
+    #   Jupiter   → Amica Financial Technologies Private Limited
+    #   CRED      → Dreamplug Technologies Private Limited
+    #   PhonePe   → PhonePe
     APP_TARGETS: dict[str, str] = {
-        "Fi Money": "com.epifi.fi",
-        "Jupiter": "org.jupiter.app",
+        "Fi Money": "com.epifi.paisa",
+        "Jupiter": "money.jupiter",
         "CRED": "com.dreamplug.androidapp",
         "PhonePe": "com.phonepe.app",
     }

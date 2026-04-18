@@ -172,7 +172,28 @@ class CouncilMember:
             )
             return ""
 
-        return str(candidate["content"]["parts"][0]["text"])
+        # Defensive extraction: response shape varies between Gemini 2.5 and
+        # Gemini 3 (and across "thinking" vs non-thinking variants). Treat any
+        # missing field as empty rather than raising KeyError or producing the
+        # literal string "None" downstream.
+        content = candidate.get("content") or {}
+        parts = content.get("parts") or []
+        if not parts:
+            logger.warning(
+                "Gemini returned candidate with no parts for model %s "
+                "(finishReason=%s) — returning empty",
+                self.model_id, finish_reason,
+            )
+            return ""
+        text = parts[0].get("text")
+        if not text:
+            logger.warning(
+                "Gemini candidate part has no text for model %s "
+                "(finishReason=%s) — returning empty",
+                self.model_id, finish_reason,
+            )
+            return ""
+        return str(text)
 
     async def _call_openrouter(self, prompt: str, client: httpx.AsyncClient) -> str:
         """POST to OpenRouter via OpenAI-compatible chat completions.
@@ -182,7 +203,13 @@ class CouncilMember:
             client: Shared AsyncClient from generate().
 
         Returns:
-            Model response text from choices[0].message.content.
+            Model response text from choices[0].message.content. Falls back to
+            ``message.reasoning`` when content is null (some upstream
+            providers — e.g. Z.AI GLM, certain Nemotron variants — emit the
+            user-facing answer in the OpenRouter `reasoning` field with
+            ``content: null`` when thinking mode is on). Returns empty string
+            on any malformed / refused response rather than producing the
+            literal string "None" downstream.
         """
         headers = {
             "Authorization": f"Bearer {self._api_key}",
@@ -196,4 +223,44 @@ class CouncilMember:
         resp = await client.post(_OPENROUTER_ENDPOINT, json=body, headers=headers)
         resp.raise_for_status()
         data = resp.json()
-        return str(data["choices"][0]["message"]["content"])
+
+        # Some OpenRouter providers wrap upstream errors in a 200 response with
+        # a top-level "error" key — surface those instead of indexing into a
+        # missing "choices" array.
+        upstream_error = data.get("error")
+        if upstream_error:
+            logger.warning(
+                "OpenRouter %s returned upstream error: %s",
+                self.model_id, upstream_error,
+            )
+            return ""
+
+        choices = data.get("choices") or []
+        if not choices:
+            logger.warning(
+                "OpenRouter %s returned no choices — returning empty",
+                self.model_id,
+            )
+            return ""
+
+        message = choices[0].get("message") or {}
+        content = message.get("content")
+        if content:
+            return str(content)
+
+        # content is None or empty — providers with thinking mode (GLM,
+        # Nemotron, etc.) sometimes route the answer through "reasoning".
+        reasoning = message.get("reasoning")
+        if reasoning:
+            logger.info(
+                "OpenRouter %s returned null content; using reasoning field",
+                self.model_id,
+            )
+            return str(reasoning)
+
+        logger.warning(
+            "OpenRouter %s returned message with no content or reasoning "
+            "(finish_reason=%s) — returning empty",
+            self.model_id, choices[0].get("finish_reason"),
+        )
+        return ""

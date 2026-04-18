@@ -206,7 +206,26 @@ class ReviewClassifier:
                     self._logger.warning("Gemini safety filter triggered — returning empty")
                     return ""
 
-                return str(candidate["content"]["parts"][0]["text"])
+                # Defensive extraction (see council_member._call_gemini for the
+                # rationale). An empty string here funnels to
+                # _make_parse_failed_result via the JSON parser, which is the
+                # correct downstream behaviour — better than KeyError.
+                content_obj = candidate.get("content") or {}
+                parts = content_obj.get("parts") or []
+                if not parts:
+                    self._logger.warning(
+                        "Gemini candidate has no parts (finishReason=%s) — returning empty",
+                        finish_reason,
+                    )
+                    return ""
+                text_value = parts[0].get("text")
+                if not text_value:
+                    self._logger.warning(
+                        "Gemini part has no text (finishReason=%s) — returning empty",
+                        finish_reason,
+                    )
+                    return ""
+                return str(text_value)
 
             except httpx.HTTPStatusError as exc:
                 status = exc.response.status_code

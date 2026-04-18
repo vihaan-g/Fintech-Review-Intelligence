@@ -164,9 +164,10 @@ class InsightReporter:
             "keyword frequency, high-signal low-rating reviews, rating distribution over time, "
             "developer reply impact, and review volume by week) to produce a structured findings "
             "summary. This summary was fed to a 4-model LLM council "
-            "(Gemini 3 Flash chairman + DeepSeek R1 + Qwen3-235B + Llama 4 Maverick) "
-            "using a Karpathy-adapted 3-stage deliberation: Stage 1 — independent parallel insights, "
-            "Stage 2 — anonymized gap-finding review, Stage 3 — chairman synthesis.",
+            "(Gemini 3 Flash chairman + Nemotron 3 Super 120B + Qwen3-Next 80B + "
+            "Llama 3.3 70B Instruct) using a Karpathy-adapted 3-stage deliberation: "
+            "Stage 1 — independent parallel insights, Stage 2 — anonymized "
+            "gap-finding review, Stage 3 — chairman synthesis.",
             "",
             "## SQL-Derived Signals",
             "",
@@ -265,8 +266,8 @@ class InsightReporter:
             "",
             "Method: 6 SQL queries feed a Karpathy-adapted 3-stage council — "
             "parallel independent insights, anonymised gap-finding review, "
-            "chairman synthesis (Gemini 3 Flash Preview + DeepSeek R1 + "
-            "Qwen3-235B + Llama 4 Maverick).",
+            "chairman synthesis (Gemini 3 Flash Preview + Nemotron 3 Super 120B + "
+            "Qwen3-Next 80B + Llama 3.3 70B Instruct).",
             "",
             "Full methodology + data: github.com/vihaan-g/fintech-review-intelligence",
         ])
@@ -342,8 +343,8 @@ class InsightReporter:
             "",
             "- Python 3.11, SQLite, google-play-scraper",
             "- Classification: Gemini 2.5 Flash (Google AI Studio free tier)",
-            "- Council: Gemini 3 Flash Preview (chairman) + DeepSeek R1 + "
-            "Qwen3-235B-A22B + Llama 4 Maverick (all OpenRouter :free)",
+            "- Council: Gemini 3 Flash Preview (chairman) + Nemotron 3 Super 120B + "
+            "Qwen3-Next 80B + Llama 3.3 70B Instruct (all OpenRouter :free)",
         ])
 
         content = "\n".join(lines)

@@ -23,6 +23,8 @@ outputs/*.txt
 
 # Database
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
 
 # OS

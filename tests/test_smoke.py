@@ -881,6 +881,36 @@ def test_enrich_skips_if_no_classified_reviews(tmp_path, monkeypatch):
     assert "classification_breakdown" not in result
 
 
+# ---------------------------------------------------------------------------
+# BatchResult status field tests
+# ---------------------------------------------------------------------------
+
+def test_batch_result_quota_exhausted_does_not_mark_complete(
+    tmp_path, monkeypatch
+):
+    """BatchResult with status=quota_exhausted should never mark phase complete."""
+    from src.classification.batch_processor import BatchResult
+    result = BatchResult(
+        total_classified=130,
+        parse_failures=0,
+        status="quota_exhausted",
+    )
+    assert result.status != "complete"
+
+
+def test_batch_result_auth_error_status():
+    """BatchResult with status=auth_error carries the correct status and message."""
+    from src.classification.batch_processor import BatchResult
+    result = BatchResult(
+        total_classified=0,
+        parse_failures=0,
+        status="auth_error",
+        message="401 Unauthorized",
+    )
+    assert result.status == "auth_error"
+    assert result.message == "401 Unauthorized"
+
+
 def test_main_dry_run_completes_without_api_calls():
     """python src/main.py --dry-run completes all phases without errors."""
     import subprocess

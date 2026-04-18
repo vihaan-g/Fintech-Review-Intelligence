@@ -7,6 +7,8 @@ import time
 from dataclasses import asdict, dataclass
 
 from src.classification.review_classifier import (
+    GeminiAuthError,
+    GeminiNetworkError,
     GeminiQuotaExhaustedError,
     ReviewClassifier,
 )
@@ -19,8 +21,10 @@ class BatchResult:
 
     total_classified: int
     parse_failures: int
-    batches_processed: int
-    duration_seconds: float
+    status: str  # "complete" | "quota_exhausted" | "auth_error" | "network_error"
+    batches_processed: int = 0
+    duration_seconds: float = 0.0
+    message: str = ""  # human-readable explanation for non-complete status
 
 
 class BatchProcessor:
@@ -68,6 +72,7 @@ class BatchProcessor:
                 parse_failures=0,
                 batches_processed=0,
                 duration_seconds=0.0,
+                status="complete",
             )
 
         # Step 2: estimate
@@ -82,6 +87,7 @@ class BatchProcessor:
                 parse_failures=0,
                 batches_processed=0,
                 duration_seconds=0.0,
+                status="complete",
             )
 
         n_batches = math.ceil(unclassified_total / self.BATCH_SIZE)
@@ -103,6 +109,10 @@ class BatchProcessor:
         # H2: cap iterations to prevent infinite loop if H1 (empty review_id) fires.
         max_iterations = math.ceil(unclassified_total / self.BATCH_SIZE) + 5
         quota_exhausted = False
+        auth_error = False
+        auth_message = ""
+        network_error = False
+        network_message = ""
         iteration = 0
         while iteration < max_iterations:
             batch = self._db.get_unclassified_reviews(limit=self.BATCH_SIZE)
@@ -118,6 +128,23 @@ class BatchProcessor:
                     batches_processed, exc,
                 )
                 quota_exhausted = True
+                break
+            except GeminiAuthError as exc:
+                self._logger.error(
+                    "Gemini authentication failed after %d batches — "
+                    "check GEMINI_API_KEY. (%s)",
+                    batches_processed, exc,
+                )
+                auth_error = True
+                auth_message = str(exc)
+                break
+            except GeminiNetworkError as exc:
+                self._logger.error(
+                    "Network error after all retries, %d batches processed. (%s)",
+                    batches_processed, exc,
+                )
+                network_error = True
+                network_message = str(exc)
                 break
 
             for review, result in zip(batch, results):
@@ -152,17 +179,31 @@ class BatchProcessor:
             time.sleep(self.SLEEP_BETWEEN_BATCHES)
 
         duration = time.monotonic() - start_time
+
+        if auth_error:
+            status = "auth_error"
+            message = auth_message
+        elif quota_exhausted:
+            status = "quota_exhausted"
+            message = ""
+        elif network_error:
+            status = "network_error"
+            message = network_message
+        else:
+            status = "complete"
+            message = ""
+
         result_summary = BatchResult(
             total_classified=total_classified,
             parse_failures=parse_failures,
             batches_processed=batches_processed,
             duration_seconds=duration,
+            status=status,
+            message=message,
         )
 
-        # Step 7: mark state — 'complete' only if we finished cleanly.
-        # When the daily Gemini quota is hit partway through, we stay in
-        # 'in_progress' so the next run resumes instead of silently skipping.
-        final_status = "in_progress" if quota_exhausted else "complete"
+        # Step 7: checkpoint to DB — 'complete' only when all reviews processed.
+        final_status = "complete" if status == "complete" else "in_progress"
         self._db.save_phase_state(
             "classification",
             final_status,
@@ -170,7 +211,7 @@ class BatchProcessor:
                 "total_classified": total_classified,
                 "parse_failures": parse_failures,
                 "batches_processed": batches_processed,
-                "quota_exhausted": quota_exhausted,
+                "status": status,
             },
         )
 

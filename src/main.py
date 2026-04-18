@@ -169,24 +169,54 @@ def main() -> None:
                     classifier = ReviewClassifier(config=config)
                     processor = BatchProcessor(classifier=classifier, db=db)
                     batch_result = processor.run()
-                    logger.info(
-                        "Classification complete — %d reviews, %d failures",
-                        batch_result.total_classified,
-                        batch_result.parse_failures,
-                    )
-                    analyst = SQLAnalyst(db=db)
-                    summarizer = FindingsSummarizer(analyst=analyst)
-                    enriched = summarizer.enrich_with_classification()
-                    if enriched:
-                        logger.info("findings_summary.json enriched with classification data")
-                    else:
-                        logger.warning(
-                            "No classified reviews found — findings_summary.json not enriched"
+
+                    if batch_result.status == "complete":
+                        db.save_phase_state("classification", "complete", {
+                            "total_classified": batch_result.total_classified,
+                            "parse_failures": batch_result.parse_failures,
+                        })
+                        logger.info(
+                            "Classification complete — %d reviews, %d failures",
+                            batch_result.total_classified,
+                            batch_result.parse_failures,
                         )
-                    db.save_phase_state("classification", "complete", {
-                        "total_classified": batch_result.total_classified,
-                        "parse_failures": batch_result.parse_failures,
-                    })
+                        analyst = SQLAnalyst(db=db)
+                        summarizer = FindingsSummarizer(analyst=analyst)
+                        enriched = summarizer.enrich_with_classification()
+                        if enriched:
+                            logger.info("findings_summary.json enriched with classification data")
+                        else:
+                            logger.warning(
+                                "No classified reviews found — findings_summary.json not enriched"
+                            )
+                    elif batch_result.status == "quota_exhausted":
+                        db.save_phase_state("classification", "in_progress", {
+                            "total_classified": batch_result.total_classified,
+                        })
+                        logger.error(
+                            "Gemini daily quota exhausted after %d reviews classified. "
+                            "Re-run tomorrow to resume.",
+                            batch_result.total_classified,
+                        )
+                        sys.exit(1)
+                    elif batch_result.status == "auth_error":
+                        db.save_phase_state("classification", "in_progress")
+                        logger.critical(
+                            "Gemini authentication failed — check GEMINI_API_KEY in .env. "
+                            "Classification has NOT been marked complete."
+                        )
+                        sys.exit(1)
+                    elif batch_result.status == "network_error":
+                        db.save_phase_state("classification", "in_progress", {
+                            "total_classified": batch_result.total_classified,
+                        })
+                        logger.error(
+                            "Network error after all retries — %d reviews classified before "
+                            "failure. Re-run to resume. Error: %s",
+                            batch_result.total_classified,
+                            batch_result.message,
+                        )
+                        sys.exit(1)
 
         # ----------------------------------------------------------------
         # Phase 4: Council

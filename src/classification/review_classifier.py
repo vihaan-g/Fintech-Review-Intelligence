@@ -37,6 +37,15 @@ class GeminiAuthError(RuntimeError):
     """
 
 
+class GeminiNetworkError(RuntimeError):
+    """Raised when all retries are exhausted due to network/transport errors.
+
+    Signals a transient connectivity failure (ConnectError, TimeoutException,
+    etc.) rather than a quota or auth issue. BatchProcessor catches this,
+    checkpoints progress, and exits so the run can be retried.
+    """
+
+
 @dataclass
 class ClassificationResult:
     """Result of classifying a single review."""
@@ -149,6 +158,8 @@ class ReviewClassifier:
             raise
         except GeminiAuthError:
             raise  # fatal — surfaces bad key immediately, never silent
+        except GeminiNetworkError:
+            raise
         except Exception as exc:  # noqa: BLE001
             self._logger.warning("Gemini API call failed for batch of %d: %s", len(reviews), exc)
             return [self._make_parse_failed_result() for _ in reviews]
@@ -282,6 +293,10 @@ class ReviewClassifier:
                 "exhausted (1,500 req/day on the free tier). Progress has "
                 "been checkpointed; re-run tomorrow to resume."
             )
+        if isinstance(last_exc, httpx.TransportError):
+            raise GeminiNetworkError(
+                f"Network error after {_MAX_RETRIES} retries — {last_exc}"
+            ) from last_exc
         raise last_exc
 
     def _build_batch_prompt(self, reviews: list[dict]) -> str:

@@ -1,4 +1,5 @@
 """Coordinates the 3-stage Karpathy-adapted LLM council."""
+
 import asyncio
 import dataclasses
 import json
@@ -21,12 +22,12 @@ _LABELS = ["Response A", "Response B", "Response C", "Response D"]
 class CouncilResult:
     """Complete output of a council run."""
 
-    stage1_responses: dict[str, MemberResponse]   # member_name → response
-    anonymization_map: dict[str, str]              # "Response A" → member_name
-    stage2_gap_analysis: str                       # anonymized review output
-    stage3_synthesis: str                          # chairman final report
+    stage1_responses: dict[str, MemberResponse]  # member_name → response
+    anonymization_map: dict[str, str]  # "Response A" → member_name
+    stage2_gap_analysis: str  # anonymized review output
+    stage3_synthesis: str  # chairman final report
     total_duration_ms: int
-    generated_at: str                              # ISO timestamp
+    generated_at: str  # ISO timestamp
 
 
 class CouncilOrchestrator:
@@ -163,9 +164,9 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
             config:   Validated Config instance.
             seed:     Optional RNG seed for Stage 2 shuffle (None = random).
         """
-        assert len(members) == 4, (
-            f"Council requires exactly 4 members, got {len(members)}"
-        )
+        assert (
+            len(members) == 4
+        ), f"Council requires exactly 4 members, got {len(members)}"
         self.members = members
         self.chairman = chairman
         self.config = config
@@ -257,16 +258,19 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
             if isinstance(item, BaseException):
                 logger.warning(
                     "Stage 1 member %s raised %s — recording empty response",
-                    member.name, item,
+                    member.name,
+                    item,
                 )
-                stage1_list.append(MemberResponse(
-                    member_name=member.name,
-                    model_id=member.model_id,
-                    raw_response=f"[error] {item}",
-                    clean_response="",
-                    timestamp=datetime.now(timezone.utc).isoformat(),
-                    duration_ms=0,
-                ))
+                stage1_list.append(
+                    MemberResponse(
+                        member_name=member.name,
+                        model_id=member.model_id,
+                        raw_response=f"[error] {item}",
+                        clean_response="",
+                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        duration_ms=0,
+                    )
+                )
             else:
                 stage1_list.append(item)
         t1_ms = int((time.monotonic() - t1_start) * 1000)
@@ -289,9 +293,13 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
                 with open(stage1_raw_path, "w", encoding="utf-8") as fh:
                     json.dump(
                         [dataclasses.asdict(r) for r in stage1_list],
-                        fh, indent=2, ensure_ascii=False,
+                        fh,
+                        indent=2,
+                        ensure_ascii=False,
                     )
-                logger.info("Stage 1 raw responses saved to %s for debugging", stage1_raw_path)
+                logger.info(
+                    "Stage 1 raw responses saved to %s for debugging", stage1_raw_path
+                )
             except OSError as exc:
                 logger.warning("Could not save stage1 raw debug output: %s", exc)
             raise RuntimeError(
@@ -307,8 +315,7 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
         rng = random.Random(self._seed)
         rng.shuffle(shuffled)
         anonymization_map: dict[str, str] = {
-            label: resp.member_name
-            for label, resp in zip(_LABELS, shuffled)
+            label: resp.member_name for label, resp in zip(_LABELS, shuffled)
         }
         stage2_prompt = self._build_stage2_prompt(shuffled, _LABELS)
 
@@ -436,7 +443,8 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
                 "Failed to save council result to %s: %s. "
                 "Council output is in memory but could not be persisted — "
                 "check filesystem space and permissions on outputs/.",
-                output_path, exc,
+                output_path,
+                exc,
             )
             raise RuntimeError(
                 f"Could not write {output_path}: {exc}. "

@@ -10,6 +10,6 @@ model: sonnet
 ---
 You handle the council pipeline only. Scope: CouncilMember and
 CouncilOrchestrator classes. Always verify outputs/findings_summary.json
-exists before starting. Council members: Gemini 3 Flash Preview (chairman,
-gemini-3-flash-preview), DeepSeek R1, Qwen3-235B-A22B, Llama 4 Maverick.
+exists before starting. Council members: Gemini 3.1 Pro Preview (chairman,
+gemini-3.1-pro-preview), DeepSeek R1, Qwen3-235B-A22B, Llama 4 Maverick.
 Gemini 2.5 Flash Lite is used only for the classification phase — not the council.

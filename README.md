@@ -59,7 +59,7 @@ Classification Results
       ↓ 4-Model Council (Karpathy-adapted)
       │  Stage 1: Parallel independent insights
       │  Stage 2: Anonymised gap-finding review
-      │  Stage 3: Gemini 3 Flash Preview chairman synthesis
+      │  Stage 3: Gemini 3.1 Pro Preview chairman synthesis
 outputs/findings_report.md
 outputs/linkedin_snippet.txt
 ```
@@ -68,7 +68,7 @@ outputs/linkedin_snippet.txt
 
 - Python 3.11, SQLite (WAL mode), `google-play-scraper`
 - Classification: Gemini 2.5 Flash Lite (Google AI Studio free tier)
-- Council chairman: Gemini 3 Flash Preview (Google AI Studio free tier)
+- Council chairman: Gemini 3.1 Pro Preview (Google AI Studio free tier)
 - Council members: DeepSeek R1, Qwen3-235B-A22B, Llama 4 Maverick
   (all OpenRouter `:free`)
 - All API keys via environment variables — never hardcoded.

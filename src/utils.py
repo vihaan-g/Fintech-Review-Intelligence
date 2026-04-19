@@ -1,4 +1,5 @@
 """Pure utility functions and lightweight helpers shared across the pipeline."""
+
 import re
 from typing import Any
 

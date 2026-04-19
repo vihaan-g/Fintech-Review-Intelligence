@@ -911,6 +911,154 @@ def test_batch_result_auth_error_status():
     assert result.message == "401 Unauthorized"
 
 
+def test_database_manager_unclassified_and_classified_counts():
+    """get_unclassified_count() and get_classified_count() return correct counts
+    and together equal the total — used by BatchProcessor resume logging."""
+    with DatabaseManager(db_path=":memory:") as db:
+        db.create_schema()
+        db.insert_reviews([
+            {
+                "app_name": "TestApp", "review_id": f"c{i}",
+                "rating": 3, "text": f"r{i}",
+                "date": "2026-01-01T00:00:00", "thumbs_up": 0,
+                "has_dev_reply": 0, "dev_reply_text": None,
+                "scraped_at": "2026-04-15T00:00:00",
+            }
+            for i in range(7)
+        ])
+        db.update_classification("c0", '{"product_area": "ux"}')
+        db.update_classification("c1", '{"product_area": "ux"}')
+        db.update_classification("c2", '{"product_area": "ux"}')
+        assert db.get_classified_count() == 3
+        assert db.get_unclassified_count() == 4
+        assert db.get_review_count() == 7
+
+
+def test_batch_processor_resume_count_reflects_checkpoint(caplog):
+    """BatchProcessor.run() estimates batches from unclassified-only count,
+    and the resume log reports the already-classified checkpoint correctly."""
+    import logging as _logging
+    import os
+    os.environ.setdefault("GEMINI_API_KEY", "test_key")
+    os.environ.setdefault("OPENROUTER_API_KEY", "test_key")
+    from src.classification.review_classifier import ReviewClassifier, ClassificationResult
+    from src.classification.batch_processor import BatchProcessor
+
+    config = Config.from_env()
+    with DatabaseManager(db_path=":memory:") as db:
+        db.create_schema()
+        # 25 reviews total — 10 already classified, 15 remaining (2 batches of 10).
+        db.insert_reviews([{
+            "app_name": "TestApp", "review_id": f"rc{i}",
+            "rating": 3, "text": f"r{i}",
+            "date": "2026-01-01T00:00:00", "thumbs_up": 0,
+            "has_dev_reply": 0, "dev_reply_text": None,
+            "scraped_at": "2026-04-15T00:00:00",
+        } for i in range(25)])
+        for i in range(10):
+            db.update_classification(f"rc{i}", '{"product_area": "ux"}')
+        db.save_phase_state("classification", "in_progress", {"total_classified": 10})
+
+        classifier = ReviewClassifier(config)
+        classifier.classify_batch = lambda reviews: [
+            ClassificationResult(
+                product_area="ux", specific_feature_request=None,
+                workflow_breakdown=False, confidence=0.9,
+                raw_response="", parse_failed=False,
+            ) for _ in reviews
+        ]
+        processor = BatchProcessor(classifier=classifier, db=db)
+        processor.SLEEP_BETWEEN_BATCHES = 0.0
+
+        with caplog.at_level(_logging.INFO, logger="BatchProcessor"):
+            result = processor.run()
+
+        assert result.status == "complete"
+        # Only the 15 unclassified were processed, not all 25.
+        assert result.total_classified == 15
+        # 15 remaining / 10 per batch = 2 batches (ceil).
+        assert result.batches_processed == 2
+        # Resume log mentions the 10 already-classified and 15 remaining.
+        resume_messages = [r.getMessage() for r in caplog.records
+                           if "Resuming classification" in r.getMessage()]
+        assert resume_messages, "Expected 'Resuming classification' log"
+        assert "10 already classified" in resume_messages[0]
+        assert "15 remaining" in resume_messages[0]
+
+
+def test_classifier_fast_fails_on_first_attempt_quota(monkeypatch):
+    """_call_gemini raises GeminiQuotaExhaustedError immediately on first-attempt
+    429 when no prior success — no retry sleeps."""
+    import os
+    import time as _time
+    os.environ.setdefault("GEMINI_API_KEY", "test_key")
+    os.environ.setdefault("OPENROUTER_API_KEY", "test_key")
+    from src.classification.review_classifier import (
+        ReviewClassifier, GeminiQuotaExhaustedError,
+    )
+    config = Config.from_env()
+    classifier = ReviewClassifier(config)
+
+    call_count = [0]
+
+    class _FakeResponse:
+        status_code = 429
+        text = "Quota exceeded"
+        headers: dict = {}
+
+    def _raise_429(*args, **kwargs):
+        call_count[0] += 1
+        import httpx
+        resp = _FakeResponse()
+        raise httpx.HTTPStatusError("429", request=None, response=resp)  # type: ignore[arg-type]
+
+    monkeypatch.setattr("httpx.post", _raise_429)
+
+    # Guard: fail the test if any sleep happens — fast-fail should skip backoff.
+    def _no_sleep(seconds):
+        raise AssertionError(f"Unexpected sleep({seconds}) — fast-fail should skip retry backoff")
+    monkeypatch.setattr(_time, "sleep", _no_sleep)
+
+    with pytest.raises(GeminiQuotaExhaustedError, match="very first request"):
+        classifier._call_gemini("test prompt")
+
+    assert call_count[0] == 1, "Should have made exactly one HTTP attempt before fast-fail"
+
+
+def test_classifier_still_retries_429_after_success(monkeypatch):
+    """Once a successful call has been made, a later 429 still retries normally
+    (it could be a transient burst limit, not daily quota exhaustion)."""
+    import os
+    os.environ.setdefault("GEMINI_API_KEY", "test_key")
+    os.environ.setdefault("OPENROUTER_API_KEY", "test_key")
+    from src.classification.review_classifier import ReviewClassifier
+    config = Config.from_env()
+    classifier = ReviewClassifier(config)
+    classifier._has_succeeded = True  # simulate earlier successful call
+
+    call_count = [0]
+
+    class _FakeResponse:
+        status_code = 429
+        text = "Quota exceeded"
+        headers: dict = {}
+
+    def _raise_429(*args, **kwargs):
+        call_count[0] += 1
+        import httpx
+        resp = _FakeResponse()
+        raise httpx.HTTPStatusError("429", request=None, response=resp)  # type: ignore[arg-type]
+
+    monkeypatch.setattr("httpx.post", _raise_429)
+    monkeypatch.setattr("time.sleep", lambda s: None)  # skip real backoff
+
+    from src.classification.review_classifier import GeminiQuotaExhaustedError
+    with pytest.raises(GeminiQuotaExhaustedError):
+        classifier._call_gemini("test prompt")
+    # All 5 retries should have fired (no fast-fail path).
+    assert call_count[0] == 5
+
+
 def test_main_dry_run_completes_without_api_calls():
     """python src/main.py --dry-run completes all phases without errors."""
     import subprocess

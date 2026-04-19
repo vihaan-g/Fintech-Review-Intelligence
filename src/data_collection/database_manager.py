@@ -327,6 +327,37 @@ class DatabaseManager:
             logger.error("Failed to fetch unclassified reviews: %s", exc)
             raise
 
+    def get_unclassified_count(self) -> int:
+        """Return count of reviews with classification IS NULL.
+
+        Cheaper than len(get_unclassified_reviews()) because it avoids pulling
+        ~10k rows into Python for a count. Used by BatchProcessor for the
+        pre-run estimate so resume logging stays accurate.
+        """
+        try:
+            cursor = self._cursor()
+            cursor.execute(
+                "SELECT COUNT(*) FROM reviews WHERE classification IS NULL"
+            )
+            row = cursor.fetchone()
+            return row[0] if row else 0
+        except sqlite3.Error as exc:
+            logger.error("Failed to get unclassified count: %s", exc)
+            raise
+
+    def get_classified_count(self) -> int:
+        """Return count of reviews with a non-NULL classification."""
+        try:
+            cursor = self._cursor()
+            cursor.execute(
+                "SELECT COUNT(*) FROM reviews WHERE classification IS NOT NULL"
+            )
+            row = cursor.fetchone()
+            return row[0] if row else 0
+        except sqlite3.Error as exc:
+            logger.error("Failed to get classified count: %s", exc)
+            raise
+
     def update_classification(self, review_id: str, classification: str) -> None:
         """Save JSON classification string for a single review.
 

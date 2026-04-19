@@ -132,6 +132,11 @@ class ReviewClassifier:
         """Initialise classifier. Extracts Gemini API key from config."""
         self._api_key: str = config.gemini_api_key
         self._logger = logging.getLogger(self.__class__.__name__)
+        # Tracks whether any request in this run has returned 200. Enables
+        # fast-fail when the very first request of a resumed run hits 429 —
+        # a signal that yesterday's quota hasn't reset yet. Without this we
+        # burn ~150s on retry backoff before giving up.
+        self._has_succeeded: bool = False
 
     def classify_batch(self, reviews: list[dict]) -> list[ClassificationResult]:
         """Classify a batch of reviews in a single Gemini API call.
@@ -235,7 +240,9 @@ class ReviewClassifier:
                         "Gemini part has no text (finishReason=%s) — returning empty",
                         finish_reason,
                     )
+                    self._has_succeeded = True
                     return ""
+                self._has_succeeded = True
                 return str(text_value)
 
             except httpx.HTTPStatusError as exc:
@@ -247,6 +254,19 @@ class ReviewClassifier:
                     ) from exc
                 if status == 429:
                     saw_429 = True
+                    # Fast-fail: if we haven't had a single successful call in
+                    # this run, a 429 on the first attempt means the daily
+                    # quota is still exhausted from a previous run. Retrying
+                    # 4 more times with exponential backoff (~150s total) is
+                    # pure waste — raise immediately so the operator sees a
+                    # clean message and can come back after UTC midnight.
+                    if not self._has_succeeded and attempt == 0:
+                        raise GeminiQuotaExhaustedError(
+                            "Gemini returned 429 on the very first request — "
+                            "daily quota (1,000 req/day free tier) is still "
+                            "exhausted. Wait until UTC midnight, then re-run "
+                            "to resume from checkpoint."
+                        ) from exc
                 if status not in _RETRYABLE_STATUS_CODES:
                     raise
                 last_exc = exc

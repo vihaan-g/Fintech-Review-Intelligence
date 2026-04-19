@@ -75,9 +75,11 @@ class BatchProcessor:
                 status="complete",
             )
 
-        # Step 2: estimate
-        unclassified = self._db.get_unclassified_reviews()
-        unclassified_total = len(unclassified)
+        # Step 2: estimate — use COUNT queries rather than loading all rows,
+        # so a resumed run reports accurate remaining work without pulling
+        # ~10k reviews into memory just to len() them.
+        unclassified_total = self._db.get_unclassified_count()
+        already_classified = self._db.get_classified_count()
 
         if unclassified_total == 0:
             self._logger.info("No unclassified reviews found. Nothing to do.")
@@ -92,10 +94,17 @@ class BatchProcessor:
 
         n_batches = math.ceil(unclassified_total / self.BATCH_SIZE)
         est_minutes = (n_batches * self.SLEEP_BETWEEN_BATCHES) / 60.0
-        self._logger.info(
-            "Classification estimate: %d batches, ~%.1fmin at 14 RPM",
-            n_batches, est_minutes,
-        )
+        if already_classified > 0:
+            self._logger.info(
+                "Resuming classification: %d already classified, %d remaining "
+                "— estimate %d batches, ~%.1fmin at 14 RPM",
+                already_classified, unclassified_total, n_batches, est_minutes,
+            )
+        else:
+            self._logger.info(
+                "Classification estimate: %d batches, ~%.1fmin at 14 RPM",
+                n_batches, est_minutes,
+            )
 
         # Step 3: mark in_progress
         self._db.save_phase_state("classification", "in_progress")

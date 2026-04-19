@@ -22,12 +22,13 @@ _LABELS = ["Response A", "Response B", "Response C", "Response D"]
 class CouncilResult:
     """Complete output of a council run."""
 
-    stage1_responses: dict[str, MemberResponse]  # member_name → response
+    stage1_responses: dict[str, MemberResponse]  # "Name [Role]" → response
     anonymization_map: dict[str, str]  # "Response A" → member_name
     stage2_gap_analysis: str  # anonymized review output
     stage3_synthesis: str  # chairman final report
     total_duration_ms: int
     generated_at: str  # ISO timestamp
+    analytical_frame: str = ""  # Stage 0 output from chairman
 
 
 class CouncilOrchestrator:
@@ -102,7 +103,37 @@ Output rules:
 - Identify 2–4 HIGH CONFIDENCE items, up to 3 UNIQUE SIGNAL items, and any CONTRADICTIONs (0 is acceptable).
 - Do not surface generic observations (e.g., "all responses mention UX issues") — only specific, data-grounded insights.
 - The Assessment field must appear before Category on every item — write your reasoning before committing to a label.
-- Total response: under 450 words."""
+- Total response: under 450 words.
+
+CONTRARIAN FRAMING
+
+You are operating as the Contrarian in this phase. Your job is not just to find
+gaps — it is to find where the analytical lenses explicitly clash. Look for
+these three named tensions:
+
+TENSION 1 — OUTSIDER vs DOMAIN EXPERTS
+Where does the Outsider's surface-level reading contradict what the First
+Principles or Expansionist analysts assumed or implied? Flag any case where
+"what the data literally shows" conflicts with "what an insider would conclude."
+
+TENSION 2 — EXPANSIONIST vs FIRST PRINCIPLES
+Where does the Expansionist's upside signal contradict the First Principles
+analyst's structural diagnosis? If one identifies an opportunity and the other
+identifies a structural constraint that would prevent it, name that tension.
+
+TENSION 3 — CONSENSUS vs EVIDENCE
+Where do two or more analysts agree on a conclusion but the data (numbers,
+distributions, verbatim patterns) does not clearly support it? Flag
+overconfident consensus that outruns the evidence.
+
+For each tension found, add a TENSION block in your output using this exact
+format:
+
+TENSION [N]
+Type: [OUTSIDER_VS_EXPERTS | EXPANSIONIST_VS_FIRST_PRINCIPLES | CONSENSUS_VS_EVIDENCE]
+Analysts: [role labels in tension, e.g. "Outsider, First Principles"]
+Summary: [one sentence naming the tension]
+Assessment: [1-2 sentences on what this tension reveals about the data]"""
 
     STAGE3_PROMPT: str = """You are the chairman of a 4-model LLM council synthesizing a final product intelligence report on Indian fintech Play Store reviews (Groww, Jupiter, CRED, PhonePe, Paytm).
 
@@ -144,6 +175,59 @@ One finding that applies to the Indian fintech category broadly — not to any s
 ---
 
 Quality bar: A PM at CRED or PhonePe should find this report useful without having seen the underlying data. Every claim must be traceable to Stage 1 or Stage 2 evidence."""
+
+    # -----------------------------------------------------------------------
+    # Cognitive role mandates — Stage 1 only
+    # Each non-chairman member receives a different analytical lens.
+    # Chairman has no Stage 1 mandate; its Contrarian role activates in Stage 2.
+    # -----------------------------------------------------------------------
+
+    ROLE_MANDATES: dict[str, str] = {
+        "deepseek/deepseek-r1:free": (
+            "ROLE MANDATE — FIRST PRINCIPLES ANALYST\n\n"
+            "Your analytical entry point is first principles reasoning. Do not describe what\n"
+            "the data shows on the surface. Do not list complaint categories. Instead, ask:\n"
+            "what does this data fundamentally reveal about the structural problems in Indian\n"
+            "fintech? What business model tensions, regulatory constraints, or user trust\n"
+            "dynamics explain WHY these patterns exist — not just WHAT they are?\n\n"
+            "Ignore conventional product analysis. Reason from the ground up. A surface\n"
+            "observation like \"Jupiter has poor support\" is not a finding. A first-principles\n"
+            "finding is: \"Jupiter's support collapse is the predictable result of a neo-bank\n"
+            "trying to compete on feature velocity while cutting the operational cost that\n"
+            "customer trust actually requires.\""
+        ),
+        "qwen/qwen3-235b-a22b:free": (
+            "ROLE MANDATE — OUTSIDER ANALYST\n\n"
+            "Your analytical entry point is radical surface-level observation. You have no\n"
+            "prior knowledge of Indian fintech, CRED, Jupiter, Groww, Paytm, or PhonePe.\n"
+            "Do not use domain assumptions or insider knowledge. React only to what is\n"
+            "literally present in the data — the numbers, distributions, and verbatim\n"
+            "patterns in front of you.\n\n"
+            "Describe what is surprising or anomalous when viewed with completely fresh eyes.\n"
+            "If a pattern seems obvious to a domain expert, that is precisely when you should\n"
+            "question it. Your most valuable output is: \"From the data alone, without\n"
+            "assumptions, what is actually strange here that everyone else would normalise?\""
+        ),
+        "meta-llama/llama-4-maverick:free": (
+            "ROLE MANDATE — EXPANSIONIST ANALYST\n\n"
+            "Your analytical entry point is upside and adjacent signal. Do not focus on\n"
+            "problems, complaints, or failures. Look for what everyone else is missing.\n\n"
+            "Where is user frustration actually revealing an unmet job-to-be-done that no app\n"
+            "is solving well? What do the high-rated reviews across all five apps reveal about\n"
+            "what users genuinely value? What does the competitive pattern — which apps are\n"
+            "gaining trust, which are losing it — suggest about where Indian fintech is\n"
+            "heading? What opportunity is hiding in the data that looks like a complaint but\n"
+            "is actually a signal?\n\n"
+            "Focus on signals, possibilities, and undervalued patterns — not problems."
+        ),
+    }
+
+    ROLE_NAMES: dict[str, str] = {
+        "deepseek/deepseek-r1:free": "First Principles",
+        "qwen/qwen3-235b-a22b:free": "Outsider",
+        "meta-llama/llama-4-maverick:free": "Expansionist",
+        "gemini-3.1-pro-preview": "Chairman (Contrarian)",
+    }
 
     # -----------------------------------------------------------------------
     # Lifecycle
@@ -220,15 +304,19 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
     # -----------------------------------------------------------------------
 
     async def run(self, findings_summary: str) -> CouncilResult:
-        """Execute the full 3-stage council. Returns CouncilResult.
+        """Execute the full 4-stage council. Returns CouncilResult.
+
+        Stage 0 — Chairman frames the analytical question:
+            Reads findings_summary and returns a ≤100-word analytical frame
+            that is prepended to every member's Stage 1 prompt.
 
         Stage 1 — Parallel independent insights:
-            Builds Stage 1 prompt with findings_summary injected.
+            Each member receives: frame + their role mandate + base prompt.
             Uses asyncio.gather() to call all 4 members simultaneously.
 
-        Stage 2 — Anonymized gap-finding review:
+        Stage 2 — Anonymized gap-finding review (Contrarian):
             Shuffles Stage 1 responses and assigns labels A/B/C/D.
-            Calls ONLY the chairman for the gap analysis.
+            Calls ONLY the chairman for gap + tension analysis.
 
         Stage 3 — Chairman synthesis:
             Calls chairman with Stage 1 outputs + Stage 2 gap analysis.
@@ -237,12 +325,29 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
         generated_at = datetime.now(timezone.utc).isoformat()
 
         # -------------------------------------------------------------------
+        # Stage 0 — chairman frames the analytical question
+        # -------------------------------------------------------------------
+        try:
+            analytical_frame = await self._stage0_frame_question(findings_summary)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Stage 0 framing failed (%s) — proceeding without analytical frame", exc
+            )
+            analytical_frame = ""
+
+        # -------------------------------------------------------------------
         # Stage 1 — parallel independent insight generation
         # -------------------------------------------------------------------
-        stage1_prompt = self._build_stage1_prompt(findings_summary)
         t1_start = time.monotonic()
         gathered = await asyncio.gather(
-            *[member.generate(stage1_prompt) for member in self.members],
+            *[
+                member.generate(
+                    self._build_stage1_prompt_for_member(
+                        member, findings_summary, analytical_frame
+                    )
+                )
+                for member in self.members
+            ],
             return_exceptions=True,
         )
         stage1_list: list[MemberResponse] = []
@@ -250,7 +355,7 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
             if isinstance(item, BaseException):
                 logger.warning(
                     "Stage 1 member %s raised %s — recording empty response",
-                    member.name,
+                    self._member_label(member),
                     item,
                 )
                 stage1_list.append(
@@ -272,7 +377,8 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
             t1_ms,
         )
         stage1_responses: dict[str, MemberResponse] = {
-            r.member_name: r for r in stage1_list
+            self._member_label(member): resp
+            for member, resp in zip(self.members, stage1_list)
         }
 
         # Guard: Stage 2+ is meaningless if nobody returned useful text.
@@ -359,6 +465,7 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
             stage3_synthesis=synthesis,
             total_duration_ms=total_duration_ms,
             generated_at=generated_at,
+            analytical_frame=analytical_frame,
         )
         self._save_result(result)
         return result
@@ -374,9 +481,64 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
     # Prompt builders
     # -----------------------------------------------------------------------
 
+    def _member_label(self, member: CouncilMember) -> str:
+        """Return display label: 'Name [Role]' if ROLE_NAMES entry exists, else 'Name'."""
+        role = self.ROLE_NAMES.get(member.model_id)
+        return f"{member.name} [{role}]" if role else member.name
+
     def _build_stage1_prompt(self, findings_summary: str) -> str:
         """Inject findings_summary into STAGE1_PROMPT."""
         return self.STAGE1_PROMPT.format(findings_summary=findings_summary)
+
+    async def _stage0_frame_question(self, findings_text: str) -> str:
+        """Chairman produces a focused 100-word analytical frame from the data.
+
+        Turns 'here is data' into 'here is the specific question to answer.'
+        This frame is prepended to every member's Stage 1 prompt.
+
+        Args:
+            findings_text: Structured findings summary passed to the council.
+
+        Returns:
+            Analytical frame string, 100 words max.
+        """
+        frame_prompt = (
+            "You are about to convene an analytical council on Indian fintech user sentiment "
+            "across five apps: PhonePe, CRED, Jupiter, Groww, and Paytm.\n\n"
+            "Read the following data summary carefully. Then produce a single focused "
+            "analytical question or frame — 100 words maximum — that captures the most "
+            "important thing this council should determine. Be specific. Name the apps, "
+            "patterns, and tensions that matter most. Do not list multiple questions. "
+            "One sharp, specific analytical target only.\n\n"
+            f"Data:\n{findings_text[:4000]}\n\n"
+            "Analytical frame (100 words max):"
+        )
+        response = await self.chairman.generate(frame_prompt)
+        frame = response.clean_response.strip()
+        logger.info(
+            "=== STAGE 0 ANALYTICAL FRAME ===\n%s\n================================",
+            frame,
+        )
+        return frame
+
+    def _build_stage1_prompt_for_member(
+        self, member: CouncilMember, findings_summary: str, analytical_frame: str = ""
+    ) -> str:
+        """Build Stage 1 prompt: analytical frame + role mandate + base prompt.
+
+        Order: frame (if any) → mandate (if any) → base STAGE1_PROMPT.
+        Chairman has no ROLE_MANDATES entry; its Contrarian role activates in Stage 2.
+        If analytical_frame is empty (Stage 0 failed), that section is omitted cleanly.
+        """
+        base = self._build_stage1_prompt(findings_summary)
+        parts: list[str] = []
+        if analytical_frame:
+            parts.append(f"ANALYTICAL FRAME FOR THIS SESSION:\n{analytical_frame}")
+        mandate = self.ROLE_MANDATES.get(member.model_id)
+        if mandate:
+            parts.append(mandate)
+        parts.append(base)
+        return "\n\n".join(parts)
 
     def _build_stage2_prompt(
         self,

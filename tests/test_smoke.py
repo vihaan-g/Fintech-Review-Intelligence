@@ -1059,6 +1059,42 @@ def test_classifier_still_retries_429_after_success(monkeypatch):
     assert call_count[0] == 5
 
 
+def test_council_orchestrator_chairman_model_id():
+    """CouncilOrchestrator.default() chairman uses gemini-3.1-pro-preview."""
+    import os
+    os.environ.setdefault("GEMINI_API_KEY", "test_key")
+    os.environ.setdefault("OPENROUTER_API_KEY", "test_key")
+    config = Config.from_env()
+    orchestrator = CouncilOrchestrator.default(config)
+    assert orchestrator.chairman.model_id == "gemini-3.1-pro-preview"
+
+
+def test_role_mandates_coverage():
+    """ROLE_MANDATES contains a key for each member model ID and no key for the chairman."""
+    member_ids = {
+        "deepseek/deepseek-r1:free",
+        "qwen/qwen3-235b-a22b:free",
+        "meta-llama/llama-4-maverick:free",
+    }
+    chairman_id = "gemini-3.1-pro-preview"
+    assert set(CouncilOrchestrator.ROLE_MANDATES.keys()) == member_ids
+    assert chairman_id not in CouncilOrchestrator.ROLE_MANDATES
+
+
+def test_council_result_has_analytical_frame_field():
+    """CouncilResult.analytical_frame defaults to empty string."""
+    from src.council.council_orchestrator import CouncilResult
+    result = CouncilResult(
+        stage1_responses={},
+        anonymization_map={},
+        stage2_gap_analysis="gap analysis text",
+        stage3_synthesis="x" * 100,
+        total_duration_ms=1000,
+        generated_at="2026-04-20T00:00:00",
+    )
+    assert result.analytical_frame == ""
+
+
 def test_main_dry_run_completes_without_api_calls():
     """python src/main.py --dry-run completes all phases without errors."""
     import subprocess

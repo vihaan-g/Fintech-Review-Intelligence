@@ -23,11 +23,13 @@ The pipeline does five things in order:
    (onboarding, UX, transactions, support, performance, trust) using
    Gemini 2.5 Flash Lite. Rate-limited to stay inside the 14 RPM / 1000-per-day
    free tier.
-4. **Council** — run a 3-stage LLM deliberation:
-   - Stage 1: four models generate insights independently, in parallel.
-   - Stage 2: chairman reviews all four Stage-1 outputs with authorship
-     anonymised (A/B/C/D) and tags them HIGH CONFIDENCE, UNIQUE SIGNAL,
-     or CONTRADICTION.
+4. **Council** — run a 4-stage LLM deliberation:
+   - Stage 0: chairman frames the analytical question (≤100 words).
+   - Stage 1: four models generate insights independently, in parallel,
+     each with a cognitive role mandate (First Principles / Outsider / Expansionist).
+   - Stage 2: chairman as Contrarian — anonymised gap analysis (A/B/C/D)
+     with Three Tensions: Outsider vs Experts, Expansionist vs First Principles,
+     Consensus vs Evidence.
    - Stage 3: chairman synthesises a final report.
 5. **Report** — write `outputs/findings_report.md`,
    `outputs/linkedin_snippet.txt`, and `outputs/README.md` (an auto-generated
@@ -57,9 +59,10 @@ Findings Summary (outputs/findings_summary.json)
       ↓ Gemini 2.5 Flash Lite (batch classification)
 Classification Results
       ↓ 4-Model Council (Karpathy-adapted)
-      │  Stage 1: Parallel independent insights
-      │  Stage 2: Anonymised gap-finding review
-      │  Stage 3: Gemini 3.1 Pro Preview chairman synthesis
+      │  Stage 0: Contrarian Chairman analytical framing
+      │  Stage 1: Role-mandated parallel insights
+      │  Stage 2: Contrarian Three Tensions gap analysis
+      │  Stage 3: Chairman synthesis
 outputs/findings_report.md
 outputs/linkedin_snippet.txt
 ```
@@ -68,9 +71,10 @@ outputs/linkedin_snippet.txt
 
 - Python 3.11, SQLite (WAL mode), `google-play-scraper`
 - Classification: Gemini 2.5 Flash Lite (Google AI Studio free tier)
-- Council chairman: Gemini 3.1 Pro Preview (Google AI Studio free tier)
-- Council members: DeepSeek R1, Qwen3-235B-A22B, Llama 4 Maverick
-  (all OpenRouter `:free`)
+- Council chairman: Gemini 3.1 Pro Preview — Contrarian Chairman (Google AI Studio free tier)
+- Council members: DeepSeek R1 (First Principles), Qwen3-235B-A22B (Outsider),
+  Llama 4 Maverick (Expansionist) — all OpenRouter `:free`
+- Estimated cost per full run: ~₹54 (classification ~₹32 + chairman ~₹22; members free)
 - All API keys via environment variables — never hardcoded.
 
 ## SQL Queries

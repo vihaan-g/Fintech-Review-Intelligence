@@ -4,29 +4,32 @@
 
 Python data pipeline to analyze Play Store reviews for Indian fintech apps
 (Groww, Jupiter, CRED, PhonePe, Paytm). Surfaces non-obvious product intelligence
-via SQL analysis and a 3-stage LLM council adapted from Karpathy's council model.
+via SQL analysis and a 4-stage LLM council adapted from Karpathy's council model.
 Portfolio project targeting APM/BA roles at Indian fintech startups.
 
 ## Tech Stack
 
 - Python 3.11+, SQLite (WAL mode), google-play-scraper
-- Classification: Gemini 2.5 Flash Lite via Google AI Studio free tier (1,000 req/day)
-- Council Chairman: Gemini 3.1 Pro Preview (gemini-3.1-pro-preview)
-  via Google AI Studio free tier — better reasoning for synthesis,
-  dynamic thinking enabled by default
-- Council Member 1: DeepSeek R1 via OpenRouter :free (Chinese/RL-trained reasoning)
-- Council Member 2: Qwen3-235B-A22B via OpenRouter :free (Alibaba/MoE)
-- Council Member 3: Llama 4 Maverick via OpenRouter :free (Meta/Western MoE)
+- Classification: Gemini 2.5 Flash Lite (gemini-2.5-flash-lite) via Google AI Studio free tier (1,000 req/day)
+- Council Chairman: Gemini 3.1 Pro Preview (gemini-3.1-pro-preview) — Contrarian Chairman
+  via Google AI Studio free tier — dynamic thinking enabled by default
+- Council Member 1: DeepSeek R1 (deepseek/deepseek-r1:free) via OpenRouter :free — First Principles analyst
+- Council Member 2: Qwen3-235B-A22B (qwen/qwen3-235b-a22b:free) via OpenRouter :free — Outsider analyst
+- Council Member 3: Llama 4 Maverick (meta-llama/llama-4-maverick:free) via OpenRouter :free — Expansionist analyst
 - All API keys via environment variables only — never hardcoded
+- Estimated costs per full run: Classification ~₹32, Chairman ~₹22, Members ₹0 (free tier), Total ~₹54
 
 ## Council Architecture (Karpathy-adapted)
 
-- 4 models total: Gemini (chairman) + DeepSeek R1 + Qwen3-235B + Llama 4 Maverick
-- Stage 1: All 4 models generate insights independently and in parallel
-- Stage 2: All 4 models review each other with identities anonymized
-  (responses labelled A/B/C/D — no model knows who wrote what)
+- 4 models total: Gemini (Contrarian Chairman) + DeepSeek R1 (First Principles) + Qwen3-235B (Outsider) + Llama 4 Maverick (Expansionist)
+- Stage 0: Chairman reads the findings summary and produces a ≤100-word analytical frame (the sharpest question to answer)
+- Stage 1: All 4 models generate insights independently in parallel; each non-chairman member receives their role mandate + analytical frame prepended
+- Stage 2: Chairman acts as Contrarian — anonymized gap analysis (A/B/C/D) with Three Tensions:
+  - TENSION 1: Outsider vs Domain Experts
+  - TENSION 2: Expansionist vs First Principles
+  - TENSION 3: Consensus vs Evidence
 - Stage 3: Gemini chairman synthesizes Stage 1 outputs + Stage 2 gap analysis
-- Total API calls per council run: ~6 (4 Stage 1 + 1 Stage 2 + 1 Stage 3; well within all free tier limits)
+- Total API calls per council run: ~7 (1 Stage 0 + 4 Stage 1 + 1 Stage 2 + 1 Stage 3)
 
 ## Pipeline Phases
 

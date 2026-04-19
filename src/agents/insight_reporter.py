@@ -39,7 +39,7 @@ class InsightReporter:
 
     def __init__(
         self,
-        council_result: Any,   # CouncilResult-compatible: has .stage3_synthesis, .stage2_gap_analysis, .generated_at
+        council_result: Any,   # CouncilResult-compatible: has .stage3_synthesis, .stage2_gap_analysis, .analytical_frame, .generated_at
         findings_summary: Any, # FindingsSummary-compatible: has .cross_app_stats, .high_signal_reviews, .structured_text, .generated_at
     ) -> None:
         """Initialise reporter with council output and SQL findings.
@@ -77,6 +77,7 @@ class InsightReporter:
             stage3_synthesis=council_dict.get("stage3_synthesis", ""),
             stage2_gap_analysis=council_dict.get("stage2_gap_analysis", ""),
             generated_at=council_dict.get("generated_at", datetime.now(timezone.utc).isoformat()),
+            analytical_frame=council_dict.get("analytical_frame", ""),
         )
         summary_obj = DictProxy(
             cross_app_stats=summary_dict.get("cross_app_stats", {}),
@@ -143,15 +144,29 @@ class InsightReporter:
         )
 
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        analytical_frame = getattr(self._council, "analytical_frame", "") or ""
+        frame_lines: list[str] = (
+            ["", "## Analytical Frame", "", f"> {analytical_frame}"]
+            if analytical_frame
+            else []
+        )
+        stage2_lines = [
+            "",
+            "## Council Gap Analysis",
+            "",
+            self._council.stage2_gap_analysis or "*Gap analysis unavailable.*",
+        ]
 
         lines = [
             "# Indian Fintech Play Store Intelligence Report",
             "",
             f"> Generated: {timestamp} | Reviews analysed: {total_reviews:,} | Apps: Groww, Jupiter, CRED, PhonePe, Paytm",
+            *frame_lines,
             "",
             "## Key Findings",
             "",
             self._council.stage3_synthesis,
+            *stage2_lines,
             "",
             "## Analytical Methodology",
             "",
@@ -164,10 +179,11 @@ class InsightReporter:
             "keyword frequency, high-signal low-rating reviews, rating distribution over time, "
             "developer reply impact, and review volume by week) to produce a structured findings "
             "summary. This summary was fed to a 4-model LLM council "
-            "(Gemini 3.1 Pro chairman + DeepSeek R1 + Qwen3-235B + "
-            "Llama 4 Maverick) using a Karpathy-adapted 3-stage deliberation: "
-            "Stage 1 — independent parallel insights, Stage 2 — anonymized "
-            "gap-finding review, Stage 3 — chairman synthesis.",
+            "(Contrarian Chairman [Gemini 3.1 Pro] + First Principles [DeepSeek R1] + "
+            "Outsider [Qwen3-235B] + Expansionist [Llama 4 Maverick]) using a "
+            "Karpathy-adapted 4-stage deliberation: Stage 0 — chairman analytical framing, "
+            "Stage 1 — role-mandated parallel insights, Stage 2 — Contrarian Three Tensions "
+            "gap analysis, Stage 3 — chairman synthesis.",
             "",
             "## SQL-Derived Signals",
             "",
@@ -212,7 +228,7 @@ class InsightReporter:
             "",
             "- Reviews sourced from Play Store (English, India region)",
             "- Classification model: Gemini 2.5 Flash Lite (free tier)",
-            "- Council: 3-stage Karpathy-adapted deliberation, 4 models",
+            "- Council: 4-stage Karpathy-adapted deliberation (Stage 0–3), 4 models",
             "- All findings reflect user sentiment at time of collection",
             "- Limitations: English reviews only, no account for fake reviews",
         ])
@@ -264,10 +280,11 @@ class InsightReporter:
 
         snippet_parts.extend([
             "",
-            "Method: 6 SQL queries feed a Karpathy-adapted 3-stage council — "
-            "parallel independent insights, anonymised gap-finding review, "
-            "chairman synthesis (Gemini 3.1 Pro Preview + DeepSeek R1 + "
-            "Qwen3-235B + Llama 4 Maverick).",
+            "Method: 6 SQL queries feed a Karpathy-adapted 4-stage council — "
+            "chairman analytical framing, role-mandated parallel insights, "
+            "Contrarian Three Tensions gap analysis, chairman synthesis "
+            "(Contrarian Chairman [Gemini 3.1 Pro Preview] + First Principles [DeepSeek R1] "
+            "+ Outsider [Qwen3-235B] + Expansionist [Llama 4 Maverick]).",
             "",
             "Full methodology + data: github.com/vihaan-g/fintech-review-intelligence",
         ])
@@ -328,9 +345,10 @@ class InsightReporter:
             "      ↓ Gemini 2.5 Flash Lite (batch classification)",
             "Classification Results",
             "      ↓ 4-Model Council (Karpathy-adapted)",
-            "      │  Stage 1: Parallel independent insights",
-            "      │  Stage 2: Anonymized gap-finding review",
-            "      │  Stage 3: Gemini 3.1 Pro chairman synthesis",
+            "      │  Stage 0: Contrarian Chairman analytical framing",
+            "      │  Stage 1: Role-mandated parallel insights",
+            "      │  Stage 2: Contrarian Three Tensions gap analysis",
+            "      │  Stage 3: Chairman synthesis",
             "findings_report.md",
             "```",
             "",
@@ -343,8 +361,9 @@ class InsightReporter:
             "",
             "- Python 3.11, SQLite, google-play-scraper",
             "- Classification: Gemini 2.5 Flash Lite (Google AI Studio free tier)",
-            "- Council: Gemini 3.1 Pro Preview (chairman) + DeepSeek R1 + "
-            "Qwen3-235B + Llama 4 Maverick (all OpenRouter :free)",
+            "- Council chairman: Gemini 3.1 Pro Preview (Contrarian Chairman)",
+            "- Council members: DeepSeek R1 (First Principles) + Qwen3-235B (Outsider) + "
+            "Llama 4 Maverick (Expansionist) — all OpenRouter :free",
         ])
 
         content = "\n".join(lines)

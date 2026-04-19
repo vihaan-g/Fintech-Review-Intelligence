@@ -1,4 +1,4 @@
-"""Coordinates the 3-stage Karpathy-adapted LLM council."""
+"""Coordinates the 4-stage Karpathy-adapted LLM council."""
 
 import asyncio
 import dataclasses
@@ -32,17 +32,18 @@ class CouncilResult:
 
 
 class CouncilOrchestrator:
-    """Coordinates a 4-model LLM council through 3 stages (Karpathy-adapted).
+    """Coordinates a 4-model LLM council through 4 stages (Karpathy-adapted).
 
     Council members:
-      - Gemini 3.1 Pro Preview (chairman) — Google AI Studio free tier
-      - DeepSeek R1 — OpenRouter :free (RL-trained reasoning)
-      - Qwen3-235B-A22B — OpenRouter :free (Alibaba MoE)
-      - Llama 4 Maverick — OpenRouter :free (Meta Western MoE)
+      - Gemini 3.1 Pro Preview (Contrarian Chairman) — Google AI Studio free tier
+      - DeepSeek R1 — OpenRouter :free [First Principles analyst]
+      - Qwen3-235B-A22B — OpenRouter :free [Outsider analyst]
+      - Llama 4 Maverick — OpenRouter :free [Expansionist analyst]
 
-    Stage 1: All 4 models generate insights in parallel (asyncio.gather)
-    Stage 2: All 4 review each other with identities anonymized (A/B/C/D)
-    Stage 3: Chairman synthesizes Stage 1 + Stage 2 gap analysis
+    Stage 0: Chairman frames the analytical question (≤100 words)
+    Stage 1: All 4 models generate insights in parallel, each with a role mandate
+    Stage 2: Chairman as Contrarian — Three Tensions gap analysis (A/B/C/D)
+    Stage 3: Chairman synthesizes Stage 1 outputs + Stage 2 gap analysis
     """
 
     # -----------------------------------------------------------------------
@@ -583,6 +584,10 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
 
         # Convert to plain dict — MemberResponse dataclasses nested inside
         raw: dict = dataclasses.asdict(result)  # type: ignore[assignment]
+
+        # Enrich each stage1_responses entry with a role field from ROLE_NAMES
+        for resp_dict in raw.get("stage1_responses", {}).values():
+            resp_dict["role"] = self.ROLE_NAMES.get(resp_dict.get("model_id", ""), "")
 
         output_path = os.path.join("outputs", "council_result.json")
         try:

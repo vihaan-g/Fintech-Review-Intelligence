@@ -40,6 +40,7 @@ class BatchProcessor:
 
     BATCH_SIZE: int = 10
     SLEEP_BETWEEN_BATCHES: float = 0.05  # Tier 1 paid: 4,000 RPM limit
+    _API_LATENCY_S: float = 2.0  # observed Flash-Lite round-trip; used for upfront estimate
 
     def __init__(self, classifier: ReviewClassifier, db: DatabaseManager) -> None:
         """Initialise processor with injected classifier and database."""
@@ -94,17 +95,18 @@ class BatchProcessor:
             )
 
         n_batches = math.ceil(unclassified_total / self.BATCH_SIZE)
-        est_minutes = (n_batches * self.SLEEP_BETWEEN_BATCHES) / 60.0
+        est_minutes = (n_batches * (self.SLEEP_BETWEEN_BATCHES + self._API_LATENCY_S)) / 60.0
         if already_classified > 0:
             self._logger.info(
                 "Resuming classification: %d already classified, %d remaining "
-                "— estimate %d batches, ~%.1fmin at 4,000 RPM",
-                already_classified, unclassified_total, n_batches, est_minutes,
+                "— estimate %d batches, ~%.0fmin (sleep + ~%.0fs API latency/batch)",
+                already_classified, unclassified_total, n_batches,
+                est_minutes, self._API_LATENCY_S,
             )
         else:
             self._logger.info(
-                "Classification estimate: %d batches, ~%.1fmin at 4,000 RPM",
-                n_batches, est_minutes,
+                "Classification estimate: %d batches, ~%.0fmin (sleep + ~%.0fs API latency/batch)",
+                n_batches, est_minutes, self._API_LATENCY_S,
             )
 
         # Step 3: mark in_progress
@@ -180,9 +182,17 @@ class BatchProcessor:
                 batches_processed, total_classified, unclassified_total, pct, parse_failures,
             )
             if batches_processed % 10 == 0:
+                elapsed = time.monotonic() - start_time
+                avg_s = elapsed / batches_processed
+                remaining_batches = math.ceil(
+                    (unclassified_total - total_classified) / self.BATCH_SIZE
+                )
+                eta_min = (remaining_batches * avg_s) / 60.0
                 self._logger.info(
-                    "Classified %d/%d reviews (%.1f%%) \u2014 %d parse failures",
+                    "Classified %d/%d reviews (%.1f%%) — %d parse failures "
+                    "— %.1fs/batch — ETA ~%.0fmin",
                     total_classified, unclassified_total, pct, parse_failures,
+                    avg_s, eta_min,
                 )
 
             # Step 6: sleep to respect 4,000 RPM Tier 1 paid limit

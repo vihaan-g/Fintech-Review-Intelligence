@@ -379,7 +379,7 @@ def _format_recovery_hint(exc: BaseException) -> str:
             "Fix: check outputs/council_stage1_raw.json for the raw responses. "
             "Most likely causes: (1) OpenRouter :free daily quota hit — wait "
             "and re-run, (2) bad OPENROUTER_API_KEY, (3) model IDs withdrawn "
-            "from free tier (update council_orchestrator.default())."
+            "from OpenRouter :free (update council_orchestrator.default())."
         )
     return (
         "Fix: inspect the traceback above, check outputs/ for partial state, "

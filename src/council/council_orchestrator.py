@@ -37,7 +37,7 @@ class CouncilOrchestrator:
     """Coordinates a 4-model LLM council through 4 stages (Karpathy-adapted).
 
     Council members:
-      - Gemini 3.1 Pro Preview (Contrarian Chairman) — Google AI Studio free tier
+      - Gemini 3.1 Pro Preview (Contrarian Chairman) — Google AI Studio Tier 1 paid
       - DeepSeek R1 — OpenRouter :free [First Principles analyst]
       - Qwen3-235B-A22B — OpenRouter :free [Outsider analyst]
       - Llama 4 Maverick — OpenRouter :free [Expansionist analyst]

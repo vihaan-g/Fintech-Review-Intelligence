@@ -33,13 +33,13 @@ class BatchProcessor:
 
     Applies cost-aware-llm-pipeline patterns:
     - Batches reviews to minimise API calls
-    - Respects Gemini free tier rate limit (14 RPM = 4.3s sleep between calls)
+    - Respects Gemini Tier 1 paid rate limit (4,000 RPM = 0.05s sleep between calls)
     - Checkpoints after each batch so interrupted runs resume correctly
     - Estimates token cost before starting full run
     """
 
     BATCH_SIZE: int = 10
-    SLEEP_BETWEEN_BATCHES: float = 4.3  # keeps under 14 RPM (60/14 ≈ 4.29s)
+    SLEEP_BETWEEN_BATCHES: float = 0.05  # Tier 1 paid: 4,000 RPM limit
 
     def __init__(self, classifier: ReviewClassifier, db: DatabaseManager) -> None:
         """Initialise processor with injected classifier and database."""
@@ -54,7 +54,7 @@ class BatchProcessor:
         1. Check pipeline_state 'classification' — if 'complete', log and return
            BatchResult with zeros (do not re-classify)
         2. Estimate total API calls needed: ceil(unclassified_count / BATCH_SIZE)
-           Log: "Classification estimate: {n} batches, ~{minutes}min at 14 RPM"
+           Log: "Classification estimate: {n} batches, ~{minutes}min at 4,000 RPM"
         3. Mark pipeline_state 'classification' as 'in_progress'
         4. Loop: fetch BATCH_SIZE unclassified reviews, classify, save to DB
         5. Log every 10 batches:
@@ -98,12 +98,12 @@ class BatchProcessor:
         if already_classified > 0:
             self._logger.info(
                 "Resuming classification: %d already classified, %d remaining "
-                "— estimate %d batches, ~%.1fmin at 14 RPM",
+                "— estimate %d batches, ~%.1fmin at 4,000 RPM",
                 already_classified, unclassified_total, n_batches, est_minutes,
             )
         else:
             self._logger.info(
-                "Classification estimate: %d batches, ~%.1fmin at 14 RPM",
+                "Classification estimate: %d batches, ~%.1fmin at 4,000 RPM",
                 n_batches, est_minutes,
             )
 
@@ -185,7 +185,7 @@ class BatchProcessor:
                     total_classified, unclassified_total, pct, parse_failures,
                 )
 
-            # Step 6: sleep to respect 14 RPM free tier limit
+            # Step 6: sleep to respect 4,000 RPM Tier 1 paid limit
             time.sleep(self.SLEEP_BETWEEN_BATCHES)
 
         duration = time.monotonic() - start_time

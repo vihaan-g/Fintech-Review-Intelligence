@@ -263,9 +263,8 @@ class ReviewClassifier:
                     if not self._has_succeeded and attempt == 0:
                         raise GeminiQuotaExhaustedError(
                             "Gemini returned 429 on the very first request — "
-                            "daily quota (1,000 req/day free tier) is still "
-                            "exhausted. Wait until UTC midnight, then re-run "
-                            "to resume from checkpoint."
+                            "quota (Tier 1 paid) is still exhausted. "
+                            "Wait and re-run to resume from checkpoint."
                         ) from exc
                 if status not in _RETRYABLE_STATUS_CODES:
                     raise
@@ -309,9 +308,8 @@ class ReviewClassifier:
 
         if saw_429:
             raise GeminiQuotaExhaustedError(
-                "Gemini returned 429 on every retry — daily quota likely "
-                "exhausted (1,000 req/day on the free tier). Progress has "
-                "been checkpointed; re-run tomorrow to resume."
+                "Gemini returned 429 on every retry — quota exhausted "
+                "(Tier 1 paid). Progress has been checkpointed; re-run to resume."
             )
         if isinstance(last_exc, httpx.TransportError):
             raise GeminiNetworkError(

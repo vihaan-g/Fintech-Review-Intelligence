@@ -172,7 +172,11 @@ class FindingsSummarizer:
 
         classification_section = self._build_classification_text(breakdown, complaints)
         existing_text = summary.get("structured_text", "")
-        summary["structured_text"] = existing_text + "\n\n" + classification_section
+        # Strip any previously appended classification section so repeated calls
+        # (across partial/resumed runs) replace rather than accumulate.
+        _MARKER = "\n\n## Classification Signals"
+        base_text = existing_text.split(_MARKER)[0]
+        summary["structured_text"] = base_text + "\n\n" + classification_section
 
         try:
             with open(path, "w", encoding="utf-8") as fh:

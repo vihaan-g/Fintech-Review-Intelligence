@@ -316,6 +316,7 @@ class CouncilMember:
         body = {
             "model": self.model_id,
             "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 4096,
         }
         resp = await self._post_with_retries(
             client, _OPENROUTER_ENDPOINT, body, headers

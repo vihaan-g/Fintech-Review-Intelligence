@@ -4,32 +4,29 @@
 
 Python data pipeline to analyze Play Store reviews for Indian fintech apps
 (Groww, Jupiter, CRED, PhonePe, Paytm). Surfaces non-obvious product intelligence
-via SQL analysis and a 4-stage LLM council adapted from Karpathy's council model.
+via SQL analysis and a multi-stage LLM council adapted from Karpathy's council model.
 Portfolio project targeting APM/BA roles at Indian fintech startups.
 
 ## Tech Stack
 
 - Python 3.11+, SQLite (WAL mode), google-play-scraper
-- Classification: Gemini 2.5 Flash Lite (gemini-2.5-flash-lite) via Google AI Studio (paid, ~₹32/run)
-- Council Chairman: Gemini 3.1 Pro Preview (gemini-3.1-pro-preview) — Contrarian Chairman
-  via Google AI Studio (paid, ~₹22/run) — dynamic thinking enabled by default
+- Classification: Gemini 2.5 Flash Lite (google/gemini-2.5-flash-lite) via OpenRouter
+- Council Chairman: Gemini 3.1 Pro Preview (google/gemini-3.1-pro-preview) — Contrarian Chairman
+  via OpenRouter
 - Council Member 1: Claude Opus 4.7 (anthropic/claude-opus-4.7) via OpenRouter — First Principles analyst
 - Council Member 2: DeepSeek R1 (deepseek/deepseek-r1) via OpenRouter — Outsider analyst
 - Council Member 3: Qwen 3.6 Plus (qwen/qwen3.6-plus) via OpenRouter — Expansionist analyst
 - All API keys via environment variables only — never hardcoded
-- Estimated costs per council run: ~$0.059 total (Opus 4.7: ~$0.050, DeepSeek R1: ~$0.005, Qwen 3.6 Plus: ~$0.004)
 
 ## Council Architecture (Karpathy-adapted)
 
 - 4 models total: Gemini (Contrarian Chairman) + Claude Opus 4.7 (First Principles) + DeepSeek R1 (Outsider) + Qwen 3.6 Plus (Expansionist)
 - Stage 0: Chairman reads the findings summary and produces a ≤100-word analytical frame (the sharpest question to answer)
-- Stage 1: All 4 models generate insights independently in parallel; each non-chairman member receives their role mandate + analytical frame prepended
-- Stage 2: Chairman acts as Contrarian — anonymized gap analysis (A/B/C/D) with Three Tensions:
-  - TENSION 1: Outsider vs Domain Experts
-  - TENSION 2: Expansionist vs First Principles
-  - TENSION 3: Consensus vs Evidence
-- Stage 3: Gemini chairman synthesizes Stage 1 outputs + Stage 2 gap analysis
-- Total API calls per council run: ~7 (1 Stage 0 + 4 Stage 1 + 1 Stage 2 + 1 Stage 3)
+- Stage 1: Only the 3 specialists generate insights independently in parallel; each receives their role mandate + analytical frame prepended
+- Stage 2a: Chairman runs an independent contrarian pass over anonymized specialist outputs
+- Stage 2b: Specialists audit the anonymized outputs for evidence quality, unsupported leaps, and missing evidence
+- Stage 2c: Chairman synthesizes the contrarian pass and specialist audits into one audit synthesis
+- Stage 3: Chairman synthesizes Stage 1 outputs + Stage 2c audit synthesis
 
 ## Pipeline Phases
 
@@ -77,7 +74,7 @@ Portfolio project targeting APM/BA roles at Indian fintech startups.
 
 - data-collector — scraping and SQLite only
 - sql-analyst — SQL queries and findings summary only
-- council-orchestrator — 4-stage council (Stage 0–3) and all external API calls
+- council-orchestrator — multi-stage council (Stage 0, 1, 2a, 2b, 2c, 3) and all external API calls
 - insight-reporter — markdown report generation, no API calls
 
 ## Gotchas (add failures here as you encounter them)

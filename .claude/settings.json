@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python .claude/hooks/secrets_check.py",
+            "command": "python3 .claude/hooks/secrets_check.py",
             "timeout": 5
           }
         ]
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'echo $CLAUDE_TOOL_INPUT_PATH | grep -q \"^src/\" && python -m pytest tests/ -x -q 2>&1 | tail -5 || true'",
+            "command": "bash -c 'printf %s "$CLAUDE_TOOL_INPUT_PATH" | grep -q "^src/" && python3 -m pytest tests/ -x -q || true'",
             "timeout": 30
           }
         ]

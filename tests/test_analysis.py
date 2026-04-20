@@ -73,6 +73,21 @@ def test_keyword_frequency_returns_empty_dict_on_no_matches() -> None:
         assert result == {}
 
 
+def test_keyword_frequency_normalizes_common_variants() -> None:
+    """keyword_frequency() rolls common variants into the canonical key."""
+    with DatabaseManager(db_path=":memory:") as db:
+        db.create_schema()
+        db.insert_reviews(
+            [
+                make_review(review_id="k1", text="app crashed during payment"),
+                make_review(review_id="k2", text="app keeps crashing on launch"),
+                make_review(review_id="k3", text="the app crash happens after login"),
+            ]
+        )
+        result = SQLAnalyst(db).keyword_frequency(["crash"])
+        assert result["crash"]["TestApp"] == 3
+
+
 def test_sql_analyst_high_signal_filter() -> None:
     """high_signal_low_rating_reviews() respects thumbs-up and rating filters."""
     with DatabaseManager(db_path=":memory:") as db:
@@ -146,6 +161,125 @@ def test_enrich_skips_if_no_classified_reviews(tmp_path, monkeypatch) -> None:
     with open("outputs/findings_summary.json", encoding="utf-8") as file_handle:
         result = json.load(file_handle)
     assert "classification_breakdown" not in result
+
+
+def test_generate_summary_surfaces_incident_like_signal() -> None:
+    """Structured text should call out a strong high-volume low-rating week."""
+    with DatabaseManager(db_path=":memory:") as db:
+        db.create_schema()
+        baseline_reviews = [
+            make_review(
+                app_name="SpikeApp",
+                review_id=f"base_{i}",
+                rating=5,
+                text="stable experience",
+                date=f"2026-01-{(i % 7) + 1:02d}T00:00:00",
+            )
+            for i in range(20)
+        ]
+        incident_reviews = [
+            make_review(
+                app_name="SpikeApp",
+                review_id=f"incident_{i}",
+                rating=1,
+                text="payment failed and app crashed",
+                date=f"2026-07-{(i % 7) + 13:02d}T00:00:00",
+            )
+            for i in range(50)
+        ]
+        db.insert_reviews(baseline_reviews + incident_reviews)
+        summary = FindingsSummarizer(SQLAnalyst(db)).generate_summary()
+        assert "Incident-like signal" in summary.structured_text
+        assert "SpikeApp" in summary.structured_text
+
+
+def test_classification_enrichment_surfaces_over_indexing(tmp_path, monkeypatch) -> None:
+    """Classification enrichment should call out materially over-indexed complaint areas."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "outputs").mkdir(exist_ok=True)
+    summary = {
+        "structured_text": "## Data Overview\n- seed",
+        "cross_app_stats": {},
+        "high_signal_reviews": [],
+        "generated_at": "2026-04-18T00:00:00",
+    }
+    with open("outputs/findings_summary.json", "w", encoding="utf-8") as file_handle:
+        json.dump(summary, file_handle)
+
+    with DatabaseManager(db_path=str(tmp_path / "test.db")) as db:
+        db.create_schema()
+        db.insert_reviews(
+            [
+                make_review(app_name="AppA", review_id=f"a_{i}", rating=1, text="support issue")
+                for i in range(8)
+            ]
+            + [
+                make_review(app_name="AppB", review_id=f"b_{i}", rating=1, text="payment issue")
+                for i in range(8)
+            ]
+        )
+        for i in range(8):
+            db.update_classification(
+                f"a_{i}",
+                json.dumps(
+                    {
+                        "product_area": "support",
+                        "specific_feature_request": None,
+                        "workflow_breakdown": False,
+                        "confidence": 0.9,
+                        "parse_failed": False,
+                    }
+                ),
+            )
+        for i in range(6):
+            db.update_classification(
+                f"b_{i}",
+                json.dumps(
+                    {
+                        "product_area": "transactions",
+                        "specific_feature_request": None,
+                        "workflow_breakdown": False,
+                        "confidence": 0.9,
+                        "parse_failed": False,
+                    }
+                ),
+            )
+        for i in range(6, 8):
+            db.update_classification(
+                f"b_{i}",
+                json.dumps(
+                    {
+                        "product_area": "support",
+                        "specific_feature_request": None,
+                        "workflow_breakdown": False,
+                        "confidence": 0.9,
+                        "parse_failed": False,
+                    }
+                ),
+            )
+
+        summarizer = FindingsSummarizer(analyst=SQLAnalyst(db=db))
+        enriched = summarizer.enrich_with_classification()
+
+    assert enriched is True
+    with open("outputs/findings_summary.json", encoding="utf-8") as file_handle:
+        result = json.load(file_handle)
+    assert "Complaint Category Over-Indexing" in result["structured_text"]
+    assert "AppA over-indexes on support" in result["structured_text"]
+
+
+def test_reply_section_is_non_causal() -> None:
+    """Reply analysis text should describe behavior, not claim causality."""
+    with DatabaseManager(db_path=":memory:") as db:
+        db.create_schema()
+        db.insert_reviews(
+            [
+                make_review(review_id="r1", rating=1, text="bad app", has_dev_reply=1, dev_reply_text="Thanks"),
+                make_review(review_id="r2", rating=1, text="still bad", has_dev_reply=0, dev_reply_text=None),
+            ]
+        )
+        summary = FindingsSummarizer(SQLAnalyst(db)).generate_summary()
+        assert "response behavior, not evidence that replies caused rating changes" in summary.structured_text
 
 
 def test_review_volume_by_week_groups_by_iso_week() -> None:

@@ -207,6 +207,9 @@ class FindingsSummarizer:
             Formatted multi-section string to append to structured_text.
         """
         sections: list[str] = []
+        over_index_lines = self._classification_over_index_lines(breakdown)
+        if over_index_lines:
+            sections.append("\n".join(["## Complaint Category Over-Indexing", *over_index_lines]))
 
         signals_lines = ["## Classification Signals"]
         for app, areas in sorted(breakdown.items()):
@@ -256,6 +259,7 @@ class FindingsSummarizer:
             Formatted multi-section string, 400-600 words.
         """
         sections: list[str] = []
+        incident_lines = self._incident_signal_lines(cross_app, rating_trends, self._top_incident_candidates())
 
         # -- Data Overview -------------------------------------------
         overview_lines = ["## Data Overview"]
@@ -272,6 +276,8 @@ class FindingsSummarizer:
         # -- Cross-App Patterns ---------------------------------------
         patterns_lines = ["## Cross-App Patterns"]
         patterns_lines.extend(self._cross_app_pattern_bullets(cross_app, keywords))
+        if incident_lines:
+            patterns_lines.extend(incident_lines[:2])
         sections.append("\n".join(patterns_lines))
 
         # -- App-Specific Signals -------------------------------------
@@ -294,14 +300,12 @@ class FindingsSummarizer:
                 f"- Most common rating: {stats['most_common_rating']}; "
                 f"developer reply rate: {stats['reply_rate_pct']}%."
             )
-            # Keyword callout for this app
-            kw_hits = [
-                f"'{kw}' ({counts[app]}x)"
-                for kw, counts in keywords.items()
-                if app in counts and counts[app] > 0
-            ]
-            if kw_hits:
-                signals_lines.append(f"- Top keyword mentions: {', '.join(kw_hits[:4])}.")
+            keyword_callout = self._top_keyword_signal_for_app(app, cross_app, keywords)
+            if keyword_callout:
+                signals_lines.append(f"- {keyword_callout}")
+            incident_callout = self._top_incident_for_app(app, cross_app, rating_trends)
+            if incident_callout:
+                signals_lines.append(f"- {incident_callout}")
 
         sections.append("\n".join(signals_lines))
 
@@ -326,14 +330,167 @@ class FindingsSummarizer:
                 reply_lines.append(
                     f"- {app}: {data['reply_rate_pct']}% reply rate on low-rated reviews "
                     f"({data['replied_count']}/{data['total_low_ratings']}). "
-                    f"Avg rating with reply: {data['avg_rating_with_reply']} vs "
-                    f"without: {data['avg_rating_without_reply']}."
+                    f"Low-rated reviews that received a reply averaged {data['avg_rating_with_reply']} vs "
+                    f"{data['avg_rating_without_reply']} without a reply; treat this as response behavior, "
+                    "not evidence that replies caused rating changes."
                 )
         else:
             reply_lines.append("- No low-rated reviews with reply data found.")
         sections.append("\n".join(reply_lines))
 
         return "\n\n".join(sections)
+
+    def _top_incident_candidates(self) -> list[dict]:
+        """Return incident-like weekly anomalies using simple app-relative thresholds."""
+        weekly_rows = self._analyst.review_volume_by_week()
+        by_app: dict[str, list[dict]] = {}
+        for row in weekly_rows:
+            by_app.setdefault(str(row["app_name"]), []).append(row)
+
+        candidates: list[dict] = []
+        for app, rows in by_app.items():
+            volumes = [int(row["review_count"]) for row in rows]
+            ratings = [float(row["avg_rating"] or 0.0) for row in rows if row.get("avg_rating") is not None]
+            if len(volumes) < 3 or not ratings:
+                continue
+
+            baseline_volume = sum(volumes) / len(volumes)
+            baseline_rating = sum(ratings) / len(ratings)
+            for row in rows:
+                review_count = int(row["review_count"])
+                avg_rating = float(row["avg_rating"] or 0.0)
+                if baseline_volume < 1:
+                    continue
+                if review_count < max(20, int(baseline_volume * 1.5)):
+                    continue
+                if avg_rating > baseline_rating - 0.4:
+                    continue
+                candidates.append(
+                    {
+                        "app_name": app,
+                        "week": str(row["week"]),
+                        "review_count": review_count,
+                        "avg_rating": avg_rating,
+                        "baseline_volume": round(baseline_volume, 1),
+                        "baseline_rating": round(baseline_rating, 2),
+                        "volume_lift": round(review_count / baseline_volume, 1),
+                        "rating_drop": round(baseline_rating - avg_rating, 2),
+                    }
+                )
+
+        return sorted(
+            candidates,
+            key=lambda row: (row["rating_drop"], row["volume_lift"]),
+            reverse=True,
+        )
+
+    def _incident_signal_lines(
+        self,
+        cross_app: dict,
+        rating_trends: list[dict],
+        incidents: list[dict],
+    ) -> list[str]:
+        """Build concise incident-like bullets for the strongest anomalies."""
+        if not cross_app or not rating_trends or not incidents:
+            return []
+
+        lines: list[str] = []
+        for incident in incidents[:2]:
+            lines.append(
+                f"- Incident-like signal: {incident['app_name']} saw {incident['review_count']} reviews in week "
+                f"{incident['week']} ({incident['volume_lift']}x its weekly baseline) while avg rating fell to "
+                f"{incident['avg_rating']} from a {incident['baseline_rating']} baseline."
+            )
+        return lines
+
+    def _top_keyword_signal_for_app(
+        self,
+        app: str,
+        cross_app: dict,
+        keywords: dict,
+    ) -> str:
+        """Return the strongest normalized keyword signal for an app."""
+        total_reviews = cross_app.get(app, {}).get("total_reviews", 0)
+        if not total_reviews:
+            return ""
+
+        best_keyword = ""
+        best_count = 0
+        best_rate = 0.0
+        for keyword, counts in keywords.items():
+            mention_count = int(counts.get(app, 0))
+            if mention_count <= 0:
+                continue
+            mention_rate = (mention_count / total_reviews) * 100
+            if mention_rate > best_rate:
+                best_keyword = keyword
+                best_count = mention_count
+                best_rate = mention_rate
+
+        if not best_keyword:
+            return ""
+        return (
+            f"Strongest keyword signal: '{best_keyword}' appears {best_count} times "
+            f"({best_rate:.1f} mentions per 100 reviews)."
+        )
+
+    def _top_incident_for_app(
+        self,
+        app: str,
+        cross_app: dict,
+        rating_trends: list[dict],
+    ) -> str:
+        """Return one incident-like sentence for the app if a strong anomaly exists."""
+        del cross_app, rating_trends
+        for incident in self._top_incident_candidates():
+            if incident["app_name"] == app:
+                return (
+                    f"Strongest weekly anomaly: week {incident['week']} reached {incident['review_count']} reviews "
+                    f"({incident['volume_lift']}x baseline) with avg rating at {incident['avg_rating']}."
+                )
+        return ""
+
+    def _classification_over_index_lines(self, breakdown: dict[str, dict]) -> list[str]:
+        """Return complaint categories that materially over-index by app."""
+        totals_by_area: dict[str, int] = {}
+        totals_by_app: dict[str, int] = {}
+        overall_total = 0
+
+        for app, areas in breakdown.items():
+            app_total = sum(int(stats["count"]) for stats in areas.values())
+            totals_by_app[app] = app_total
+            overall_total += app_total
+            for area, stats in areas.items():
+                totals_by_area[area] = totals_by_area.get(area, 0) + int(stats["count"])
+
+        if overall_total == 0:
+            return []
+
+        lines: list[str] = []
+        for app, areas in breakdown.items():
+            app_total = totals_by_app.get(app, 0)
+            if app_total < 5:
+                continue
+            strongest: tuple[str, float, float] | None = None
+            for area, stats in areas.items():
+                area_total = totals_by_area.get(area, 0)
+                if area_total < 5:
+                    continue
+                app_share = int(stats["count"]) / app_total
+                baseline_share = area_total / overall_total
+                if app_share <= baseline_share * 1.5:
+                    continue
+                if strongest is None or (app_share - baseline_share) > (strongest[1] - strongest[2]):
+                    strongest = (area, app_share, baseline_share)
+            if strongest is None:
+                continue
+            area, app_share, baseline_share = strongest
+            lines.append(
+                f"- {app} over-indexes on {area}: {app_share * 100:.1f}% of its classified low-rated reviews vs "
+                f"{baseline_share * 100:.1f}% across the combined app set."
+            )
+
+        return lines
 
     def _cross_app_pattern_bullets(
         self, cross_app: dict, keywords: dict

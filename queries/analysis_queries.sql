@@ -60,7 +60,7 @@ LIMIT 500;
 
 
 -- -----------------------------------------------------------------------------
--- Query 3: Developer Reply Impact
+-- Query 3: Developer Reply Behavior
 -- -----------------------------------------------------------------------------
 -- What it measures:
 --   For 1-2 star reviews, the reply rate per app, plus the average rating of
@@ -68,10 +68,9 @@ LIMIT 500;
 --
 -- Why it matters for product analysis:
 --   A high reply rate on negative reviews signals an engaged, accountable team.
---   If avg_rating_with_reply is higher than avg_rating_without_reply, it
---   suggests that the replied-to cohort had a somewhat better experience
---   (or that developers target less-severe negatives). Either way, it is a
---   customer-success lever that varies widely across Indian fintech apps.
+--   The replied-vs-unreplied cohort averages describe response behavior, not
+--   causal impact: they can reflect who teams choose to reply to as much as
+--   any downstream customer outcome.
 --
 -- Note: COALESCE is used on AVG(...) to return 0.0 instead of NULL when no
 -- reviews exist for a given has_dev_reply value (e.g. an app with zero
@@ -97,9 +96,9 @@ GROUP BY app_name;
 -- Query 4: Keyword Frequency
 -- -----------------------------------------------------------------------------
 -- What it measures:
---   Count of reviews per app that contain a given keyword (case-insensitive).
---   Run once per keyword; the Python layer iterates over the keyword list.
---   The keyword is a runtime parameter passed as a LIKE pattern.
+--   Count of reviews per app that contain a given canonical keyword signal.
+--   The Python layer may expand a canonical keyword into a small alias set
+--   (e.g. crash/crashed/crashing) while preserving the same output key.
 --
 -- Why it matters for product analysis:
 --   Keyword frequency converts free-text reviews into quantifiable signals.

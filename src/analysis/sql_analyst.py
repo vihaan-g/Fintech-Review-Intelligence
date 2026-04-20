@@ -21,6 +21,21 @@ DEFAULT_KEYWORDS: list[str] = [
     "interest",
 ]
 
+KEYWORD_ALIASES: dict[str, tuple[str, ...]] = {
+    "kyc": ("kyc",),
+    "crash": ("crash", "crashes", "crashed", "crashing"),
+    "otp": ("otp",),
+    "upi": ("upi",),
+    "cashback": ("cashback",),
+    "freeze": ("freeze", "frozen"),
+    "support": ("support", "customer care", "customer service"),
+    "slow": ("slow", "lag", "laggy"),
+    "failed": ("failed", "failure", "fail"),
+    "blocked": ("blocked", "block"),
+    "refund": ("refund", "refunded", "reversal"),
+    "interest": ("interest",),
+}
+
 
 class SQLAnalyst:
     """Runs all analytical SQL queries against the reviews database.
@@ -109,8 +124,7 @@ class SQLAnalyst:
         return self._execute(sql, (min_thumbs,))
 
     def developer_reply_impact(self) -> dict[str, dict]:
-        """For each app: reply rate on 1-2 star reviews, and whether replies
-        correlate with subsequent rating patterns.
+        """For each app: reply rate on 1-2 star reviews and cohort-level rating context.
 
         Returns dict keyed by app_name:
         {
@@ -158,7 +172,7 @@ class SQLAnalyst:
     def keyword_frequency(
         self, keywords: list[str] | None = None
     ) -> dict[str, dict[str, int]]:
-        """Count keyword mentions per app using case-insensitive LIKE matching.
+        """Count normalized keyword mentions per app using case-insensitive LIKE matching.
 
         Default keywords if none provided:
         ['kyc', 'crash', 'otp', 'upi', 'cashback', 'freeze', 'support',
@@ -175,15 +189,19 @@ class SQLAnalyst:
         result: dict[str, dict[str, int]] = {}
 
         for kw in kw_list:
-            sql = """
+            aliases = KEYWORD_ALIASES.get(kw, (kw,))
+            conditions = " OR ".join(
+                ["LOWER(text) LIKE '%' || LOWER(?) || '%'" for _ in aliases]
+            )
+            sql = f"""
             SELECT
                 app_name,
                 COUNT(*) AS mention_count
             FROM reviews
-            WHERE LOWER(text) LIKE '%' || LOWER(?) || '%'
+            WHERE {conditions}
             GROUP BY app_name
             """
-            rows = self._execute(sql, (kw,))
+            rows = self._execute(sql, tuple(aliases))
             if rows:
                 result[kw] = {row["app_name"]: int(row["mention_count"]) for row in rows}
 

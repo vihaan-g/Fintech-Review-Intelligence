@@ -1,4 +1,5 @@
 """Represents a single LLM council member and its API call logic."""
+
 import asyncio
 import logging
 import random
@@ -36,7 +37,7 @@ class MemberResponse:
     model_id: str
     raw_response: str
     clean_response: str  # think tags stripped
-    timestamp: str       # ISO format
+    timestamp: str  # ISO format
     duration_ms: int
 
 
@@ -71,9 +72,7 @@ class CouncilMember:
         self.provider = provider
         self.model_id = model_id
         self._api_key = (
-            config.gemini_api_key
-            if provider == "gemini"
-            else config.openrouter_api_key
+            config.gemini_api_key if provider == "gemini" else config.openrouter_api_key
         )
 
     async def generate(self, prompt: str) -> MemberResponse:
@@ -116,24 +115,32 @@ class CouncilMember:
                     pass
                 logger.error(
                     "CouncilMember %s — fatal HTTP %d, not retrying. Body: %s",
-                    self.name, status, body_snippet,
+                    self.name,
+                    status,
+                    body_snippet,
                 )
                 raise
             logger.warning(
                 "CouncilMember %s HTTP %s after retries: %s",
-                self.name, status, exc,
+                self.name,
+                status,
+                exc,
             )
             raw = f"[error: HTTP {status} after retries] {exc}"
         except httpx.TransportError as exc:
             logger.warning(
                 "CouncilMember %s transport error (%s) after retries: %s",
-                self.name, type(exc).__name__, exc,
+                self.name,
+                type(exc).__name__,
+                exc,
             )
             raw = f"[error: {type(exc).__name__} after retries] {exc}"
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "CouncilMember %s unexpected error (%s): %s",
-                self.name, type(exc).__name__, exc,
+                self.name,
+                type(exc).__name__,
+                exc,
             )
             raw = f"[error: {type(exc).__name__}] {exc}"
         duration_ms = int((time.monotonic() - start) * 1000)
@@ -175,11 +182,15 @@ class CouncilMember:
                 if resp.status_code in _RETRYABLE_STATUS_CODES:
                     last_exc = httpx.HTTPStatusError(
                         f"HTTP {resp.status_code}",
-                        request=resp.request, response=resp,
+                        request=resp.request,
+                        response=resp,
                     )
                     logger.warning(
                         "CouncilMember %s retryable HTTP %d on attempt %d/%d",
-                        self.name, resp.status_code, attempt + 1, _MAX_RETRIES,
+                        self.name,
+                        resp.status_code,
+                        attempt + 1,
+                        _MAX_RETRIES,
                     )
                 else:
                     # Fatal 4xx will raise here; 2xx returns the response.
@@ -189,14 +200,21 @@ class CouncilMember:
                 last_exc = exc
                 logger.warning(
                     "CouncilMember %s network error (%s) on attempt %d/%d: %s",
-                    self.name, type(exc).__name__, attempt + 1, _MAX_RETRIES, exc,
+                    self.name,
+                    type(exc).__name__,
+                    attempt + 1,
+                    _MAX_RETRIES,
+                    exc,
                 )
 
             if attempt < _MAX_RETRIES - 1:
-                delay = _BACKOFF_BASE_SECONDS * (2 ** attempt) + random.uniform(0, 1.5)
+                delay = _BACKOFF_BASE_SECONDS * (2**attempt) + random.uniform(0, 1.5)
                 logger.info(
                     "CouncilMember %s sleeping %.1fs before retry %d/%d",
-                    self.name, delay, attempt + 2, _MAX_RETRIES,
+                    self.name,
+                    delay,
+                    attempt + 2,
+                    _MAX_RETRIES,
                 )
                 await asyncio.sleep(delay)
 
@@ -230,7 +248,8 @@ class CouncilMember:
         if block_reason:
             logger.warning(
                 "Gemini blocked prompt for %s (blockReason=%s)",
-                self.model_id, block_reason,
+                self.model_id,
+                block_reason,
             )
             return ""
 
@@ -258,7 +277,8 @@ class CouncilMember:
             logger.warning(
                 "Gemini returned candidate with no parts for model %s "
                 "(finishReason=%s) — returning empty",
-                self.model_id, finish_reason,
+                self.model_id,
+                finish_reason,
             )
             return ""
         text = parts[0].get("text")
@@ -266,7 +286,8 @@ class CouncilMember:
             logger.warning(
                 "Gemini candidate part has no text for model %s "
                 "(finishReason=%s) — returning empty",
-                self.model_id, finish_reason,
+                self.model_id,
+                finish_reason,
             )
             return ""
         return str(text)
@@ -296,7 +317,9 @@ class CouncilMember:
             "model": self.model_id,
             "messages": [{"role": "user", "content": prompt}],
         }
-        resp = await self._post_with_retries(client, _OPENROUTER_ENDPOINT, body, headers)
+        resp = await self._post_with_retries(
+            client, _OPENROUTER_ENDPOINT, body, headers
+        )
         data = resp.json()
 
         # Some OpenRouter providers wrap upstream errors in a 200 response with
@@ -306,7 +329,8 @@ class CouncilMember:
         if upstream_error:
             logger.warning(
                 "OpenRouter %s returned upstream error: %s",
-                self.model_id, upstream_error,
+                self.model_id,
+                upstream_error,
             )
             return ""
 
@@ -336,6 +360,7 @@ class CouncilMember:
         logger.warning(
             "OpenRouter %s returned message with no content or reasoning "
             "(finish_reason=%s) — returning empty",
-            self.model_id, choices[0].get("finish_reason"),
+            self.model_id,
+            choices[0].get("finish_reason"),
         )
         return ""

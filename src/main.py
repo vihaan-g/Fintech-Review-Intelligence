@@ -219,8 +219,8 @@ def main() -> None:
                             "total_classified": batch_result.total_classified,
                         })
                         logger.error(
-                            "Gemini daily quota exhausted after %d reviews classified. "
-                            "Re-run tomorrow to resume.",
+                            "OpenRouter rate limit hit after %d reviews classified. "
+                            "Re-run to resume.",
                             batch_result.total_classified,
                         )
                         sys.exit(1)
@@ -350,18 +350,18 @@ def _format_recovery_hint(exc: BaseException) -> str:
     """
     # Avoid import-at-top cycles — these classes are only needed for the hint.
     from src.classification.review_classifier import (  # noqa: PLC0415
-        GeminiAuthError, GeminiQuotaExhaustedError,
+        OpenRouterAuthError, OpenRouterRateLimitError,
     )
-    if isinstance(exc, GeminiAuthError):
+    if isinstance(exc, OpenRouterAuthError):
         return (
-            "Fix: verify GEMINI_API_KEY in .env is correct and active at "
-            "https://aistudio.google.com/app/apikey — then re-run; completed "
+            "Fix: verify OPENROUTER_API_KEY in .env is correct and active at "
+            "https://openrouter.ai/keys — then re-run; completed "
             "phases will be skipped."
         )
-    if isinstance(exc, GeminiQuotaExhaustedError):
+    if isinstance(exc, OpenRouterRateLimitError):
         return (
-            "Fix: Gemini Tier 1 paid daily quota is exhausted. "
-            "Wait until UTC midnight, then re-run — classification will "
+            "Fix: OpenRouter is still rate-limiting or the account has no "
+            "available capacity. Wait and re-run — classification will "
             "resume from checkpoint."
         )
     if isinstance(exc, FileNotFoundError):

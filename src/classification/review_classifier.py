@@ -1,4 +1,4 @@
-"""Classifies Play Store reviews using Gemini 2.5 Flash Lite."""
+"""Classifies Play Store reviews via OpenRouter."""
 import json
 import logging
 import random
@@ -10,38 +10,36 @@ import httpx
 
 from src.config import Config
 
-_GEMINI_ENDPOINT = (
-    "https://generativelanguage.googleapis.com/v1beta/models/"
-    "gemini-2.5-flash-lite:generateContent"
-)
+_OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
+_CLASSIFICATION_MODEL = "google/gemini-2.5-flash-lite"
 _MAX_RETRIES = 5
 _RETRYABLE_STATUS_CODES = frozenset([429, 500, 502, 503])
 _REQUEST_TIMEOUT_SECONDS = 30.0
 _BACKOFF_BASE_SECONDS = 10.0
 
 
-class GeminiQuotaExhaustedError(RuntimeError):
-    """Raised when Gemini returns 429 after all retries are exhausted.
+class OpenRouterRateLimitError(RuntimeError):
+    """Raised when OpenRouter returns 429 after all retries are exhausted.
 
-    Signals that the Tier 1 paid daily quota is likely hit.
+    Signals a durable rate-limit or account-level limit condition.
     BatchProcessor catches this, checkpoints progress, and exits cleanly
-    so the run can resume tomorrow.
+    so the run can resume on the next invocation.
     """
 
 
-class GeminiAuthError(RuntimeError):
-    """Raised when Gemini returns 400/401/403 — fatal auth/config failure.
+class OpenRouterAuthError(RuntimeError):
+    """Raised when OpenRouter returns 400/401/403 — fatal auth/config failure.
 
     Never caught by classify_batch; always propagates to the caller so a bad
     key is surfaced immediately rather than producing 10k silent parse failures.
     """
 
 
-class GeminiNetworkError(RuntimeError):
+class OpenRouterNetworkError(RuntimeError):
     """Raised when all retries are exhausted due to network/transport errors.
 
     Signals a transient connectivity failure (ConnectError, TimeoutException,
-    etc.) rather than a quota or auth issue. BatchProcessor catches this,
+    etc.) rather than an auth issue. BatchProcessor catches this,
     checkpoints progress, and exits so the run can be retried.
     """
 
@@ -59,12 +57,12 @@ class ClassificationResult:
 
 
 class ReviewClassifier:
-    """Classifies Play Store reviews using Gemini 2.5 Flash Lite.
+    """Classifies Play Store reviews using Gemini 2.5 Flash Lite via OpenRouter.
 
     Uses prompt-optimizer output for classification prompts.
     Never raises on parse failure — returns low-confidence result instead.
-    Auth errors (GeminiAuthError) propagate immediately without swallowing.
-    All API calls go through _call_gemini() for testability.
+    Auth errors (OpenRouterAuthError) propagate immediately without swallowing.
+    All API calls go through _call_openrouter() for testability.
     """
 
     SINGLE_REVIEW_PROMPT: str = (
@@ -129,22 +127,22 @@ class ReviewClassifier:
     ])
 
     def __init__(self, config: Config) -> None:
-        """Initialise classifier. Extracts Gemini API key from config."""
-        self._api_key: str = config.gemini_api_key
+        """Initialise classifier. Extracts OpenRouter API key from config."""
+        self._api_key: str = config.openrouter_api_key
         self._logger = logging.getLogger(self.__class__.__name__)
         # Tracks whether any request in this run has returned 200. Enables
         # fast-fail when the very first request of a resumed run hits 429 —
-        # a signal that yesterday's quota hasn't reset yet. Without this we
-        # burn ~150s on retry backoff before giving up.
+        # a signal that the account is still rate-limited or has no available
+        # capacity. Without this we burn ~150s on retry backoff before giving up.
         self._has_succeeded: bool = False
 
     def classify_batch(self, reviews: list[dict]) -> list[ClassificationResult]:
-        """Classify a batch of reviews in a single Gemini API call.
+        """Classify a batch of reviews in a single OpenRouter API call.
 
         Sends all reviews as a JSON array in one prompt.
         Expects a JSON array response of the same length.
         On parse failure: returns list of parse_failed=True results for the batch.
-        GeminiQuotaExhaustedError and GeminiAuthError always propagate.
+        OpenRouterRateLimitError and OpenRouterAuthError always propagate.
         Never raises for other errors. Always returns same length as input.
 
         Args:
@@ -158,39 +156,39 @@ class ReviewClassifier:
 
         prompt = self._build_batch_prompt(reviews)
         try:
-            raw = self._call_gemini(prompt)
-        except GeminiQuotaExhaustedError:
+            raw = self._call_openrouter(prompt)
+        except OpenRouterRateLimitError:
             raise
-        except GeminiAuthError:
+        except OpenRouterAuthError:
             raise  # fatal — surfaces bad key immediately, never silent
-        except GeminiNetworkError:
+        except OpenRouterNetworkError:
             raise
         except Exception as exc:  # noqa: BLE001
-            self._logger.warning("Gemini API call failed for batch of %d: %s", len(reviews), exc)
+            self._logger.warning(
+                "OpenRouter API call failed for batch of %d: %s", len(reviews), exc
+            )
             return [self._make_parse_failed_result() for _ in reviews]
 
         return self._parse_batch_response(raw, batch_size=len(reviews))
 
-    def _call_gemini(self, prompt: str) -> str:
-        """Make a single synchronous HTTP POST to Gemini 2.5 Flash Lite.
-
-        Includes generationConfig with temperature=0.1 and responseMimeType
-        "application/json" to reduce prose wrapping and non-JSON output.
+    def _call_openrouter(self, prompt: str) -> str:
+        """Make a single synchronous HTTP POST to OpenRouter chat completions.
 
         Returns the model's text response as a raw string.
-        Raises GeminiAuthError on 400/401/403 (fatal, no retry).
-        Raises GeminiQuotaExhaustedError when all retries see 429.
+        Raises OpenRouterAuthError on 400/401/403 (fatal, no retry).
+        Raises OpenRouterRateLimitError when all retries see 429.
         Raises httpx.HTTPStatusError for other non-retryable status codes.
         Timeout: 30 seconds.
         """
-        url = _GEMINI_ENDPOINT
-        headers = {"x-goog-api-key": self._api_key}
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "HTTP-Referer": "https://github.com/vihaan-g/fintech-review-intelligence",
+            "X-OpenRouter-Title": "Fintech Review Intelligence",
+        }
         body = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "temperature": 0.1,
-                "responseMimeType": "application/json",
-            },
+            "model": _CLASSIFICATION_MODEL,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.1,
         }
         last_exc: Exception = RuntimeError("All retries exhausted")
         saw_429 = False
@@ -198,72 +196,58 @@ class ReviewClassifier:
         for attempt in range(_MAX_RETRIES):
             try:
                 response = httpx.post(
-                    url, json=body, headers=headers, timeout=_REQUEST_TIMEOUT_SECONDS,
+                    _OPENROUTER_ENDPOINT,
+                    json=body,
+                    headers=headers,
+                    timeout=_REQUEST_TIMEOUT_SECONDS,
                 )
                 response.raise_for_status()
                 data = response.json()
 
-                # Prompt-level block before any candidate is generated
-                block_reason = data.get("promptFeedback", {}).get("blockReason")
-                if block_reason:
+                upstream_error = data.get("error")
+                if upstream_error:
                     self._logger.warning(
-                        "Gemini blocked prompt (blockReason=%s) — returning empty", block_reason
+                        "OpenRouter returned upstream error for classification: %s",
+                        upstream_error,
                     )
                     return ""
 
-                candidates = data.get("candidates", [])
-                if not candidates:
-                    self._logger.warning("Gemini returned no candidates")
+                choices = data.get("choices") or []
+                if not choices:
+                    self._logger.warning("OpenRouter returned no choices")
                     return ""
 
-                candidate = candidates[0]
-                finish_reason = candidate.get("finishReason", "STOP")
-                if finish_reason == "SAFETY":
-                    self._logger.warning("Gemini safety filter triggered — returning empty")
-                    return ""
-
-                # Defensive extraction (see council_member._call_gemini for the
-                # rationale). An empty string here funnels to
-                # _make_parse_failed_result via the JSON parser, which is the
-                # correct downstream behaviour — better than KeyError.
-                content_obj = candidate.get("content") or {}
-                parts = content_obj.get("parts") or []
-                if not parts:
+                message = choices[0].get("message") or {}
+                content = message.get("content")
+                if not content:
                     self._logger.warning(
-                        "Gemini candidate has no parts (finishReason=%s) — returning empty",
-                        finish_reason,
+                        "OpenRouter classification response has no content "
+                        "(finish_reason=%s) — returning empty",
+                        choices[0].get("finish_reason"),
                     )
-                    return ""
-                text_value = parts[0].get("text")
-                if not text_value:
-                    self._logger.warning(
-                        "Gemini part has no text (finishReason=%s) — returning empty",
-                        finish_reason,
-                    )
-                    self._has_succeeded = True
                     return ""
                 self._has_succeeded = True
-                return str(text_value)
+                return str(content)
 
             except httpx.HTTPStatusError as exc:
                 status = exc.response.status_code
                 if status in {400, 401, 403}:
-                    raise GeminiAuthError(
-                        f"Gemini auth/request error HTTP {status} — check GEMINI_API_KEY. "
+                    raise OpenRouterAuthError(
+                        f"OpenRouter auth/request error HTTP {status} — check OPENROUTER_API_KEY. "
                         f"Body: {exc.response.text[:200]}"
                     ) from exc
                 if status == 429:
                     saw_429 = True
                     # Fast-fail: if we haven't had a single successful call in
                     # this run, a 429 on the first attempt means the daily
-                    # quota is still exhausted from a previous run. Retrying
+                    # limit or account capacity issue is still active. Retrying
                     # 4 more times with exponential backoff (~150s total) is
                     # pure waste — raise immediately so the operator sees a
-                    # clean message and can come back after UTC midnight.
+                    # clean message and can come back after limits clear.
                     if not self._has_succeeded and attempt == 0:
-                        raise GeminiQuotaExhaustedError(
-                            "Gemini returned 429 on the very first request — "
-                            "quota (Tier 1 paid) is still exhausted. "
+                        raise OpenRouterRateLimitError(
+                            "OpenRouter returned 429 on the very first request — "
+                            "the account is still rate-limited or unavailable. "
                             "Wait and re-run to resume from checkpoint."
                         ) from exc
                 if status not in _RETRYABLE_STATUS_CODES:
@@ -307,12 +291,12 @@ class ReviewClassifier:
                 time.sleep(delay)
 
         if saw_429:
-            raise GeminiQuotaExhaustedError(
-                "Gemini returned 429 on every retry — quota exhausted "
-                "(Tier 1 paid). Progress has been checkpointed; re-run to resume."
+            raise OpenRouterRateLimitError(
+                "OpenRouter returned 429 on every retry — classification progress "
+                "has been checkpointed; re-run to resume."
             )
         if isinstance(last_exc, httpx.TransportError):
-            raise GeminiNetworkError(
+            raise OpenRouterNetworkError(
                 f"Network error after {_MAX_RETRIES} retries — {last_exc}"
             ) from last_exc
         raise last_exc
@@ -332,7 +316,7 @@ class ReviewClassifier:
     def _parse_batch_response(
         self, raw: str, batch_size: int
     ) -> list[ClassificationResult]:
-        """Parse Gemini's JSON array response into ClassificationResult list.
+        """Parse the model's JSON array response into ClassificationResult list.
 
         Steps:
         1. Strip <think>...</think> blocks

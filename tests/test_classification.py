@@ -5,8 +5,8 @@ import pytest
 from src.classification.batch_processor import BatchProcessor, BatchResult
 from src.classification.review_classifier import (
     ClassificationResult,
-    GeminiAuthError,
-    GeminiQuotaExhaustedError,
+    OpenRouterAuthError,
+    OpenRouterRateLimitError,
     ReviewClassifier,
 )
 from src.config import Config
@@ -121,15 +121,15 @@ def test_parse_batch_response_bracket_slice_with_preamble(llm_env) -> None:
     assert results[0].product_area == "transactions"
 
 
-def test_gemini_auth_error_propagates_from_classify_batch(llm_env, monkeypatch) -> None:
-    """GeminiAuthError is not swallowed by classify_batch."""
+def test_openrouter_auth_error_propagates_from_classify_batch(llm_env, monkeypatch) -> None:
+    """OpenRouterAuthError is not swallowed by classify_batch."""
     classifier = ReviewClassifier(Config.from_env())
 
     def raise_auth(*args, **kwargs):
-        raise GeminiAuthError("HTTP 401")
+        raise OpenRouterAuthError("HTTP 401")
 
-    monkeypatch.setattr(classifier, "_call_gemini", raise_auth)
-    with pytest.raises(GeminiAuthError):
+    monkeypatch.setattr(classifier, "_call_openrouter", raise_auth)
+    with pytest.raises(OpenRouterAuthError):
         classifier.classify_batch([{"text": "test review"}])
 
 
@@ -221,10 +221,10 @@ def test_batch_processor_resume_count_reflects_checkpoint(
         assert "15 remaining" in messages[0]
 
 
-def test_classifier_fast_fails_on_first_attempt_quota(
+def test_classifier_fast_fails_on_first_attempt_rate_limit(
     llm_env, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """_call_gemini raises immediately on first-attempt 429 with no prior success."""
+    """_call_openrouter raises immediately on first-attempt 429 with no prior success."""
     classifier = ReviewClassifier(Config.from_env())
     call_count = [0]
 
@@ -247,8 +247,8 @@ def test_classifier_fast_fails_on_first_attempt_quota(
         ),
     )
 
-    with pytest.raises(GeminiQuotaExhaustedError, match="very first request"):
-        classifier._call_gemini("test prompt")
+    with pytest.raises(OpenRouterRateLimitError, match="very first request"):
+        classifier._call_openrouter("test prompt")
     assert call_count[0] == 1
 
 
@@ -274,8 +274,8 @@ def test_classifier_still_retries_429_after_success(
     monkeypatch.setattr("httpx.post", raise_429)
     monkeypatch.setattr("time.sleep", lambda seconds: None)
 
-    with pytest.raises(GeminiQuotaExhaustedError):
-        classifier._call_gemini("test prompt")
+    with pytest.raises(OpenRouterRateLimitError):
+        classifier._call_openrouter("test prompt")
     assert call_count[0] == 5
 
 

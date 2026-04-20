@@ -7,9 +7,9 @@ import time
 from dataclasses import asdict, dataclass
 
 from src.classification.review_classifier import (
-    GeminiAuthError,
-    GeminiNetworkError,
-    GeminiQuotaExhaustedError,
+    OpenRouterAuthError,
+    OpenRouterNetworkError,
+    OpenRouterRateLimitError,
     ReviewClassifier,
 )
 from src.data_collection.database_manager import DatabaseManager
@@ -33,13 +33,13 @@ class BatchProcessor:
 
     Applies cost-aware-llm-pipeline patterns:
     - Batches reviews to minimise API calls
-    - Respects Gemini Tier 1 paid rate limit (4,000 RPM = 0.05s sleep between calls)
+    - Uses narrow retry/fail-fast behavior for auth, 429s, and network errors
     - Checkpoints after each batch so interrupted runs resume correctly
-    - Estimates token cost before starting full run
+    - Keeps progress estimates simple and operator-friendly
     """
 
     BATCH_SIZE: int = 10
-    SLEEP_BETWEEN_BATCHES: float = 0.05  # Tier 1 paid: 4,000 RPM limit
+    SLEEP_BETWEEN_BATCHES: float = 0.05
     _API_LATENCY_S: float = 2.0  # observed Flash-Lite round-trip; used for upfront estimate
 
     def __init__(self, classifier: ReviewClassifier, db: DatabaseManager) -> None:
@@ -55,7 +55,7 @@ class BatchProcessor:
         1. Check pipeline_state 'classification' — if 'complete', log and return
            BatchResult with zeros (do not re-classify)
         2. Estimate total API calls needed: ceil(unclassified_count / BATCH_SIZE)
-           Log: "Classification estimate: {n} batches, ~{minutes}min at 4,000 RPM"
+            Log: "Classification estimate: {n} batches, ~{minutes}min"
         3. Mark pipeline_state 'classification' as 'in_progress'
         4. Loop: fetch BATCH_SIZE unclassified reviews, classify, save to DB
         5. Log every 10 batches:
@@ -133,24 +133,24 @@ class BatchProcessor:
 
             try:
                 results = self._classifier.classify_batch(batch)
-            except GeminiQuotaExhaustedError as exc:
+            except OpenRouterRateLimitError as exc:
                 self._logger.error(
-                    "Gemini daily quota exhausted after %d batches. "
-                    "Progress checkpointed — re-run tomorrow to resume. (%s)",
+                    "OpenRouter rate limit hit after %d batches. "
+                    "Progress checkpointed — re-run to resume. (%s)",
                     batches_processed, exc,
                 )
                 quota_exhausted = True
                 break
-            except GeminiAuthError as exc:
+            except OpenRouterAuthError as exc:
                 self._logger.error(
-                    "Gemini authentication failed after %d batches — "
-                    "check GEMINI_API_KEY. (%s)",
+                    "OpenRouter authentication failed after %d batches — "
+                    "check OPENROUTER_API_KEY. (%s)",
                     batches_processed, exc,
                 )
                 auth_error = True
                 auth_message = str(exc)
                 break
-            except GeminiNetworkError as exc:
+            except OpenRouterNetworkError as exc:
                 self._logger.error(
                     "Network error after all retries, %d batches processed. (%s)",
                     batches_processed, exc,
@@ -195,7 +195,7 @@ class BatchProcessor:
                     avg_s, eta_min,
                 )
 
-            # Step 6: sleep to respect 4,000 RPM Tier 1 paid limit
+            # Step 6: short pause between batches to avoid bursty request patterns
             time.sleep(self.SLEEP_BETWEEN_BATCHES)
 
         duration = time.monotonic() - start_time

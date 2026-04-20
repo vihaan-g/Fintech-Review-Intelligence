@@ -390,10 +390,21 @@ class ReviewClassifier:
                     self._logger.warning("Invalid product_area: %r", product_area)
                     return failed
 
+                # Bug 5: bool("false") == True. Strict parsing required.
+                try:
+                    workflow_breakdown = self._parse_bool(item["workflow_breakdown"])
+                except ValueError:
+                    self._logger.warning(
+                        "Invalid workflow_breakdown value %r — rejecting row",
+                        item.get("workflow_breakdown"),
+                    )
+                    results.append(self._make_parse_failed_result(raw))
+                    continue
+
                 results.append(ClassificationResult(
                     product_area=str(product_area),
                     specific_feature_request=item["specific_feature_request"],
-                    workflow_breakdown=bool(item["workflow_breakdown"]),
+                    workflow_breakdown=workflow_breakdown,
                     confidence=float(item["confidence"]),
                     raw_response=raw,
                     parse_failed=False,
@@ -414,6 +425,24 @@ class ReviewClassifier:
         except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
             self._logger.warning("Failed to parse batch response: %s", exc)
             return failed
+
+    @staticmethod
+    def _parse_bool(value: object) -> bool:
+        """Parse a boolean from an API response value.
+
+        API models sometimes return "true"/"false" strings instead of JSON
+        booleans. bool("false") == True is a silent corruption bug — this
+        method raises ValueError for any unrecognised value so the row is
+        rejected rather than silently corrupted.
+        """
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            if value.lower() == "true":
+                return True
+            if value.lower() == "false":
+                return False
+        raise ValueError(f"Cannot parse bool from {value!r}")
 
     def _make_parse_failed_result(self, raw: str = "") -> ClassificationResult:
         """Return a ClassificationResult indicating parse failure.

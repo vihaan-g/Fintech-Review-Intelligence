@@ -245,6 +245,9 @@ class SQLAnalyst:
         # SQLite has no MODE() function. most_common_rating is derived via a
         # per-app subquery: GROUP BY rating ORDER BY COUNT(*) DESC LIMIT 1.
         # The window function approach below achieves the same result set-wide.
+        # Bug 10: RANK() returns multiple rows on ties; ROW_NUMBER() with a
+        # deterministic secondary sort avoids the non-deterministic dict update.
+        # Tie-break rule: lowest rating wins (conservative bias toward negative signal).
         most_common_sql = """
         SELECT app_name, rating AS most_common_rating
         FROM (
@@ -252,11 +255,11 @@ class SQLAnalyst:
                 app_name,
                 rating,
                 COUNT(*) AS cnt,
-                RANK() OVER (PARTITION BY app_name ORDER BY COUNT(*) DESC) AS rnk
+                ROW_NUMBER() OVER (PARTITION BY app_name ORDER BY COUNT(*) DESC, rating ASC) AS rn
             FROM reviews
             GROUP BY app_name, rating
         ) ranked
-        WHERE rnk = 1
+        WHERE rn = 1
         """
         most_common_rows = self._execute(most_common_sql)
         most_common_map: dict[str, int] = {

@@ -10,6 +10,8 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+import httpx
+
 from src.config import Config
 from src.council.council_member import CouncilMember, MemberResponse
 
@@ -354,6 +356,17 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
         stage1_list: list[MemberResponse] = []
         for member, item in zip(self.members, gathered):
             if isinstance(item, BaseException):
+                # Bug 7: fatal 4xx errors (auth failure, bad model ID) must halt
+                # Stage 1, not silently become empty slots. Transient errors
+                # (network, exhausted 429) still produce empty slots as before.
+                if isinstance(item, httpx.HTTPStatusError):
+                    status_code = item.response.status_code
+                    if 400 <= status_code < 500 and status_code != 429:
+                        raise RuntimeError(
+                            f"Stage 1 member {self._member_label(member)} returned fatal "
+                            f"HTTP {status_code} (model: {member.model_id}). "
+                            "Check API key and model ID. Council aborted."
+                        ) from item
                 logger.warning(
                     "Stage 1 member %s raised %s — recording empty response",
                     self._member_label(member),
@@ -503,6 +516,9 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
         Returns:
             Analytical frame string, 100 words max.
         """
+        # Bug 6: pass full findings_text — truncating to 4,000 chars cut off
+        # classification enrichment appended at the end of structured_text.
+        logger.info("Stage 0 input: %d chars", len(findings_text))
         frame_prompt = (
             "You are about to convene an analytical council on Indian fintech user sentiment "
             "across five apps: PhonePe, CRED, Jupiter, Groww, and Paytm.\n\n"
@@ -511,7 +527,7 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
             "important thing this council should determine. Be specific. Name the apps, "
             "patterns, and tensions that matter most. Do not list multiple questions. "
             "One sharp, specific analytical target only.\n\n"
-            f"Data:\n{findings_text[:4000]}\n\n"
+            f"Data:\n{findings_text}\n\n"
             "Analytical frame (100 words max):"
         )
         response = await self.chairman.generate(frame_prompt)

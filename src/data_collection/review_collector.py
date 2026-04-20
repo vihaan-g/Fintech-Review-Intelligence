@@ -37,6 +37,7 @@ class CollectionResult:
     total_collected: int
     per_app: dict[str, int]
     skipped_apps: list[str]
+    failed_apps: list[str]
     duration_seconds: float
 
 
@@ -94,6 +95,7 @@ class ReviewCollector:
         start = datetime.now(timezone.utc)
         per_app: dict[str, int] = {}
         skipped_apps: list[str] = []
+        failed_apps: list[str] = []
         apps_to_collect = list(self.APP_TARGETS.items())
 
         for idx, (app_name, app_id) in enumerate(apps_to_collect):
@@ -137,6 +139,7 @@ class ReviewCollector:
                     {"error": str(exc), "partial_count": inserted},
                 )
                 per_app[app_name] = inserted
+                failed_apps.append(app_name)
                 continue
             except Exception as exc:
                 logger.error(
@@ -146,6 +149,29 @@ class ReviewCollector:
                 )
                 self._db.save_phase_state(phase_key, "failed", {"error": str(exc)})
                 per_app[app_name] = 0
+                failed_apps.append(app_name)
+                continue
+
+            # Bug 3: verify actual distinct count in DB before marking complete.
+            # Duplicate-heavy reruns can insert fewer rows than target.
+            count_rows = self._db.execute_read(
+                "SELECT COUNT(DISTINCT review_id) AS n FROM reviews WHERE app_name = ?",
+                (app_name,),
+            )
+            distinct_count = count_rows[0]["n"] if count_rows else 0
+            if distinct_count < target_per_app:
+                logger.warning(
+                    "App %s: only %d distinct reviews in DB (target %d) — "
+                    "marking failed so re-run retries.",
+                    app_name, distinct_count, target_per_app,
+                )
+                self._db.save_phase_state(
+                    phase_key,
+                    "failed",
+                    {"partial_count": distinct_count, "target": target_per_app},
+                )
+                per_app[app_name] = distinct_count
+                failed_apps.append(app_name)
                 continue
 
             per_app[app_name] = inserted
@@ -162,6 +188,7 @@ class ReviewCollector:
             total_collected=total,
             per_app=per_app,
             skipped_apps=skipped_apps,
+            failed_apps=failed_apps,
             duration_seconds=duration,
         )
 

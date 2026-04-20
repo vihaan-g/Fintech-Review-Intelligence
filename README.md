@@ -15,14 +15,15 @@ The pipeline does five things in order:
 1. **Collect** — scrape Play Store reviews (India, English) for five apps
    using `google-play-scraper`, store them in a single SQLite database
    with WAL mode enabled.
-2. **Analyse (SQL)** — run six analytical queries (rating distribution,
+2. **Analyse (SQL)** — run 8 analytical queries (rating distribution,
    high-signal low-rating reviews, developer reply impact, keyword
-   frequency, review volume by week, cross-app summary) and compile a
-   structured findings summary.
+   frequency, review volume by week, cross-app summary, classification
+   breakdown, top classified complaints) and compile a structured
+   findings summary.
 3. **Classify** — batch-classify every review into product areas
    (onboarding, UX, transactions, support, performance, trust) using
    Gemini 2.5 Flash Lite. Rate-limited to stay inside the 14 RPM / 1000-per-day
-   free tier.
+   Paid tier (Google AI Studio); ~₹32 per full run.
 4. **Council** — run a 4-stage LLM deliberation:
    - Stage 0: chairman frames the analytical question (≤100 words).
    - Stage 1: four models generate insights independently, in parallel,
@@ -54,7 +55,7 @@ where it left off on the next invocation.
 Play Store (5 apps)
       ↓ google-play-scraper
 SQLite DB (reviews.db)
-      ↓ SQLAnalyst (6 queries)
+      ↓ SQLAnalyst (8 queries)
 Findings Summary (outputs/findings_summary.json)
       ↓ Gemini 2.5 Flash Lite (batch classification)
 Classification Results
@@ -70,8 +71,8 @@ outputs/linkedin_snippet.txt
 ## Tech Stack
 
 - Python 3.11, SQLite (WAL mode), `google-play-scraper`
-- Classification: Gemini 2.5 Flash Lite (Google AI Studio free tier)
-- Council chairman: Gemini 3.1 Pro Preview — Contrarian Chairman (Google AI Studio free tier)
+- Classification: Gemini 2.5 Flash Lite (Google AI Studio, paid — ~₹32/run)
+- Council chairman: Gemini 3.1 Pro Preview — Contrarian Chairman (Google AI Studio, paid — ~₹22/run)
 - Council members: DeepSeek R1 (First Principles), Qwen3-235B-A22B (Outsider),
   Llama 4 Maverick (Expansionist) — all OpenRouter `:free`
 - Estimated cost per full run: ~₹54 (classification ~₹32 + chairman ~₹22; members free)
@@ -79,7 +80,7 @@ outputs/linkedin_snippet.txt
 
 ## SQL Queries
 
-See [queries/analysis_queries.sql](queries/analysis_queries.sql) for all six
+See [queries/analysis_queries.sql](queries/analysis_queries.sql) for all 8
 analytical queries, each annotated with what it measures and why it matters
 for product analysis.
 
@@ -93,14 +94,14 @@ src/
     review_collector.py              # google-play-scraper wrapper
     database_manager.py              # SQLite schema + CRUD
   analysis/
-    sql_analyst.py                   # 6 parameterised SQL queries
+    sql_analyst.py                   # 8 analytical queries
     findings_summarizer.py           # compiles structured findings
   classification/
     review_classifier.py             # Gemini classifier (retries, parse-safe)
     batch_processor.py               # rate-limited batching + checkpointing
   council/
     council_member.py                # one LLM, one API call path
-    council_orchestrator.py          # 3-stage Karpathy council
+    council_orchestrator.py          # 4-stage Karpathy council (Stage 0–3)
   agents/
     insight_reporter.py              # generates report / snippet / companion README
 queries/

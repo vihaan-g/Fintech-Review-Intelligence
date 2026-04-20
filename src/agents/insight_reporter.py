@@ -171,13 +171,14 @@ class InsightReporter:
             "## Analytical Methodology",
             "",
             f"Data was collected by scraping {total_reviews:,} Play Store reviews across five "
-            "Indian fintech apps: Groww, Jupiter, CRED, PhonePe, and Paytm. "
-            "Reviews span the full available history on the Play Store for each app. "
+            "Indian fintech apps: Groww, Jupiter, CRED, PhonePe, and Paytm "
+            "(the newest 2,200 reviews per app, sorted by recency). "
             "Collection was performed using google-play-scraper with English-language filters applied.",
             "",
-            "Each review was first processed through six SQL analytical queries (cross-app summary, "
+            "Each review was first processed through 8 analytical queries (cross-app summary, "
             "keyword frequency, high-signal low-rating reviews, rating distribution over time, "
-            "developer reply impact, and review volume by week) to produce a structured findings "
+            "developer reply impact, review volume by week, classification breakdown, and "
+            "top classified complaints) to produce a structured findings "
             "summary. This summary was fed to a 4-model LLM council "
             "(Contrarian Chairman [Gemini 3.1 Pro] + First Principles [DeepSeek R1] + "
             "Outsider [Qwen3-235B] + Expansionist [Llama 4 Maverick]) using a "
@@ -227,7 +228,7 @@ class InsightReporter:
             "## Data Notes",
             "",
             "- Reviews sourced from Play Store (English, India region)",
-            "- Classification model: Gemini 2.5 Flash Lite (free tier)",
+            "- Classification model: Gemini 2.5 Flash Lite (Google AI Studio, paid)",
             "- Council: 4-stage Karpathy-adapted deliberation (Stage 0–3), 4 models",
             "- All findings reflect user sentiment at time of collection",
             "- Limitations: English reviews only, no account for fake reviews",
@@ -280,7 +281,7 @@ class InsightReporter:
 
         snippet_parts.extend([
             "",
-            "Method: 6 SQL queries feed a Karpathy-adapted 4-stage council — "
+            "Method: 8 SQL queries feed a Karpathy-adapted 4-stage council — "
             "chairman analytical framing, role-mandated parallel insights, "
             "Contrarian Three Tensions gap analysis, chairman synthesis "
             "(Contrarian Chairman [Gemini 3.1 Pro Preview] + First Principles [DeepSeek R1] "
@@ -340,7 +341,7 @@ class InsightReporter:
             "Play Store (5 apps)",
             "      ↓ google-play-scraper",
             "SQLite DB (reviews.db)",
-            "      ↓ SQLAnalyst (6 queries)",
+            "      ↓ SQLAnalyst (8 queries)",
             "Findings Summary",
             "      ↓ Gemini 2.5 Flash Lite (batch classification)",
             "Classification Results",
@@ -354,13 +355,13 @@ class InsightReporter:
             "",
             "## SQL Queries",
             "",
-            "See [queries/analysis_queries.sql](queries/analysis_queries.sql) "
-            "for all 6 analytical queries with commentary.",
+            "See [queries/analysis_queries.sql](../queries/analysis_queries.sql) "
+            "for all 8 analytical queries with commentary.",
             "",
             "## Tech Stack",
             "",
             "- Python 3.11, SQLite, google-play-scraper",
-            "- Classification: Gemini 2.5 Flash Lite (Google AI Studio free tier)",
+            "- Classification: Gemini 2.5 Flash Lite (Google AI Studio, paid — ~₹32/run)",
             "- Council chairman: Gemini 3.1 Pro Preview (Contrarian Chairman)",
             "- Council members: DeepSeek R1 (First Principles) + Qwen3-235B (Outsider) + "
             "Llama 4 Maverick (Expansionist) — all OpenRouter :free",

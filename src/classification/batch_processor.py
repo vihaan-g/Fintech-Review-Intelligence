@@ -21,10 +21,11 @@ class BatchResult:
 
     total_classified: int
     parse_failures: int
-    status: str  # "complete" | "quota_exhausted" | "auth_error" | "network_error"
+    status: str  # "complete" | "incomplete" | "quota_exhausted" | "auth_error" | "network_error"
     batches_processed: int = 0
     duration_seconds: float = 0.0
     message: str = ""  # human-readable explanation for non-complete status
+    remaining_unclassified: int = 0  # non-zero when status="incomplete"
 
 
 class BatchProcessor:
@@ -189,6 +190,7 @@ class BatchProcessor:
 
         duration = time.monotonic() - start_time
 
+        remaining_unclassified = 0
         if auth_error:
             status = "auth_error"
             message = auth_message
@@ -199,8 +201,23 @@ class BatchProcessor:
             status = "network_error"
             message = network_message
         else:
-            status = "complete"
-            message = ""
+            # Bug 4: iteration cap may exit without classifying everything.
+            # Check actual unclassified count before declaring complete.
+            remaining_unclassified = self._db.get_unclassified_count()
+            if remaining_unclassified > 0:
+                status = "incomplete"
+                message = (
+                    f"{remaining_unclassified} reviews still unclassified "
+                    "after iteration cap — re-run to resume"
+                )
+                self._logger.warning(
+                    "Classification iteration cap reached with %d reviews "
+                    "still unclassified. Status set to 'incomplete'.",
+                    remaining_unclassified,
+                )
+            else:
+                status = "complete"
+                message = ""
 
         result_summary = BatchResult(
             total_classified=total_classified,
@@ -209,6 +226,7 @@ class BatchProcessor:
             duration_seconds=duration,
             status=status,
             message=message,
+            remaining_unclassified=remaining_unclassified,
         )
 
         # Step 7: checkpoint to DB — 'complete' only when all reviews processed.

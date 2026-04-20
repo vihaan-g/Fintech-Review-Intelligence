@@ -94,12 +94,22 @@ def main() -> None:
         # Phase 1: Data Collection
         # ----------------------------------------------------------------
         if args.phase in (None, "collection"):
-            state = db.get_phase_state("collection")
-            if state and state["status"] == "complete":
-                logger.info("Phase 1 (collection) already complete — skipping")
+            # Bug 9: use per-app checkpoint keys (collection_<app>), not a single
+            # "collection" key. The collector writes per-app keys; reading them here
+            # keeps both paths consistent and makes partial-collection resumable.
+            _COLLECTION_APP_KEYS = ["groww", "jupiter", "cred", "phonepe", "paytm"]
+            per_app_states = {
+                k: db.get_phase_state(f"collection_{k}") for k in _COLLECTION_APP_KEYS
+            }
+            all_apps_complete = all(
+                s is not None and s.get("status") == "complete"
+                for s in per_app_states.values()
+            )
+            if all_apps_complete:
+                logger.info("Phase 1 (collection) already complete for all apps — skipping")
             elif args.dry_run:
+                # Bug 1: dry-run must not write canonical phase state
                 logger.info("DRY RUN — skipping Phase 1 (collection)")
-                db.save_phase_state("collection", "complete", {"dry_run": True, "total_collected": 0})
             else:
                 logger.info("Phase 1: Data Collection")
                 # Lazy import: google_play_scraper only needed when actually collecting
@@ -111,6 +121,12 @@ def main() -> None:
                     result.total_collected,
                     len(result.per_app),
                 )
+                # Bug 2: halt before analysis if any apps failed
+                if result.failed_apps:
+                    raise RuntimeError(
+                        f"Collection failed for {len(result.failed_apps)} app(s): "
+                        f"{result.failed_apps}. Fix errors above and re-run to retry."
+                    )
 
         # ----------------------------------------------------------------
         # Phase 2: SQL Analysis
@@ -120,6 +136,7 @@ def main() -> None:
             if state and state["status"] == "complete":
                 logger.info("Phase 2 (analysis) already complete — skipping")
             elif args.dry_run:
+                # Bug 1: dry-run must not write canonical phase state
                 logger.info("DRY RUN — writing mock findings_summary.json")
                 mock_summary = {
                     "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -134,7 +151,6 @@ def main() -> None:
                 os.makedirs("outputs", exist_ok=True)
                 with open("outputs/findings_summary.json", "w", encoding="utf-8") as f:
                     json.dump(mock_summary, f, indent=2)
-                db.save_phase_state("analysis", "complete", {"dry_run": True})
             else:
                 logger.info("Phase 2: SQL Analysis")
                 analyst = SQLAnalyst(db=db)
@@ -157,11 +173,8 @@ def main() -> None:
                 else:
                     logger.info("Phase 3: Semantic Classification")
                 if args.dry_run:
+                    # Bug 1: dry-run must not write canonical phase state
                     logger.info("DRY RUN — skipping classification API calls")
-                    db.save_phase_state(
-                        "classification", "complete",
-                        {"dry_run": True, "total_classified": 0},
-                    )
                     analyst = SQLAnalyst(db=db)
                     summarizer = FindingsSummarizer(analyst=analyst)
                     summarizer.enrich_with_classification()  # logs warning, returns False
@@ -189,6 +202,18 @@ def main() -> None:
                             logger.warning(
                                 "No classified reviews found — findings_summary.json not enriched"
                             )
+                    elif batch_result.status == "incomplete":
+                        db.save_phase_state("classification", "in_progress", {
+                            "total_classified": batch_result.total_classified,
+                            "remaining_unclassified": batch_result.remaining_unclassified,
+                        })
+                        logger.error(
+                            "Classification incomplete: %d reviews still unclassified "
+                            "after iteration cap (%d classified). Re-run to resume.",
+                            batch_result.remaining_unclassified,
+                            batch_result.total_classified,
+                        )
+                        sys.exit(1)
                     elif batch_result.status == "quota_exhausted":
                         db.save_phase_state("classification", "in_progress", {
                             "total_classified": batch_result.total_classified,
@@ -244,6 +269,7 @@ def main() -> None:
                 findings_text = summary_data.get("structured_text", "")
 
                 if args.dry_run:
+                    # Bug 1: dry-run must not write canonical phase state
                     logger.info("DRY RUN — using mock council output")
                     mock_synthesis = (
                         "DRY RUN MOCK: Council synthesis placeholder. "
@@ -252,7 +278,6 @@ def main() -> None:
                         "the 4-model council. The pipeline wiring is verified "
                         "and all phases completed successfully."
                     )
-                    db.save_phase_state("council", "complete", {"dry_run": True})
                     mock_result = {
                         "stage3_synthesis": mock_synthesis,
                         "stage2_gap_analysis": "mock gap analysis",

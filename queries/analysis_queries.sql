@@ -55,7 +55,8 @@ SELECT
 FROM reviews
 WHERE thumbs_up >= ?
   AND rating <= 2
-ORDER BY thumbs_up DESC;
+ORDER BY thumbs_up DESC
+LIMIT 500;
 
 
 -- -----------------------------------------------------------------------------
@@ -196,17 +197,18 @@ GROUP BY app_name;
 -- Single-app form: SELECT rating FROM reviews WHERE app_name = ?
 --                  GROUP BY rating ORDER BY COUNT(*) DESC LIMIT 1
 -- Multi-app form using window function (used in Python layer):
+-- Tie-break: lowest rating wins (conservative bias toward negative signal).
 SELECT app_name, rating AS most_common_rating
 FROM (
     SELECT
         app_name,
         rating,
         COUNT(*) AS cnt,
-        RANK() OVER (PARTITION BY app_name ORDER BY COUNT(*) DESC) AS rnk
+        ROW_NUMBER() OVER (PARTITION BY app_name ORDER BY COUNT(*) DESC, rating ASC) AS rn
     FROM reviews
     GROUP BY app_name, rating
 ) ranked
-WHERE rnk = 1;
+WHERE rn = 1;
 
 
 -- -----------------------------------------------------------------------------

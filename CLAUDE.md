@@ -10,9 +10,9 @@ Portfolio project targeting APM/BA roles at Indian fintech startups.
 ## Tech Stack
 
 - Python 3.11+, SQLite (WAL mode), google-play-scraper
-- Classification: Gemini 2.5 Flash Lite (gemini-2.5-flash-lite) via Google AI Studio free tier (1,000 req/day)
+- Classification: Gemini 2.5 Flash Lite (gemini-2.5-flash-lite) via Google AI Studio (paid, ~₹32/run)
 - Council Chairman: Gemini 3.1 Pro Preview (gemini-3.1-pro-preview) — Contrarian Chairman
-  via Google AI Studio free tier — dynamic thinking enabled by default
+  via Google AI Studio (paid, ~₹22/run) — dynamic thinking enabled by default
 - Council Member 1: DeepSeek R1 (deepseek/deepseek-r1:free) via OpenRouter :free — First Principles analyst
 - Council Member 2: Qwen3-235B-A22B (qwen/qwen3-235b-a22b:free) via OpenRouter :free — Outsider analyst
 - Council Member 3: Llama 4 Maverick (meta-llama/llama-4-maverick:free) via OpenRouter :free — Expansionist analyst
@@ -77,7 +77,7 @@ Portfolio project targeting APM/BA roles at Indian fintech startups.
 
 - data-collector — scraping and SQLite only
 - sql-analyst — SQL queries and findings summary only
-- council-orchestrator — 3-stage council and all external API calls
+- council-orchestrator — 4-stage council (Stage 0–3) and all external API calls
 - insight-reporter — markdown report generation, no API calls
 
 ## Gotchas (add failures here as you encounter them)

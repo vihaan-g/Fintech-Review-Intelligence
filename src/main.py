@@ -281,6 +281,18 @@ def main() -> None:
                     mock_result = {
                         "stage3_synthesis": mock_synthesis,
                         "stage2_gap_analysis": "mock gap analysis",
+                        "stage2a_contrarian_pass": "mock contrarian pass",
+                        "stage2b_evidence_audits": {
+                            "Claude Opus 4.7 [First Principles]": {
+                                "member_name": "Claude Opus 4.7",
+                                "model_id": "anthropic/claude-opus-4.7",
+                                "raw_response": "mock audit",
+                                "clean_response": "mock audit",
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "duration_ms": 0,
+                            }
+                        },
+                        "stage2c_audit_synthesis": "mock audit synthesis",
                         "stage1_responses": {},
                         "anonymization_map": {},
                         "total_duration_ms": 0,

@@ -103,6 +103,48 @@ def test_insight_reporter_uses_live_council_roster_in_outputs(
     assert "First Principles [DeepSeek R1]" not in report_text + linkedin_text
 
 
+def test_insight_reporter_prefers_stage2c_audit_synthesis(tmp_path, monkeypatch) -> None:
+    """Reporter should prefer the new Stage 2c audit synthesis when present."""
+    from src.agents.insight_reporter import InsightReporter
+
+    monkeypatch.chdir(tmp_path)
+    os.makedirs("outputs", exist_ok=True)
+    reporter = InsightReporter.from_dicts(
+        council_dict={
+            "stage3_synthesis": "A" * 200,
+            "stage2_gap_analysis": "legacy gap analysis",
+            "stage2a_contrarian_pass": "contrarian notes",
+            "stage2c_audit_synthesis": "new audit synthesis",
+            "stage2b_evidence_audits": {
+                "Claude Opus 4.7 [First Principles]": {
+                    "clean_response": "audit text"
+                }
+            },
+            "generated_at": "2026-04-20T00:00:00",
+        },
+        summary_dict={
+            "structured_text": "## Data Overview\nTestApp: 100 reviews",
+            "cross_app_stats": {
+                "TestApp": {
+                    "total_reviews": 100,
+                    "avg_rating": 3.5,
+                    "pct_one_star": 10.0,
+                    "pct_five_star": 25.0,
+                    "reply_rate_pct": 5.0,
+                }
+            },
+            "high_signal_reviews": [],
+            "generated_at": "2026-04-20T00:00:00",
+        },
+    )
+    reporter.generate_all()
+    report_text = open("outputs/findings_report.md", encoding="utf-8").read()
+    assert "new audit synthesis" in report_text
+    assert "legacy gap analysis" not in report_text
+    assert "Chairman Contrarian Pass" in report_text
+    assert "Evidence Audits" in report_text
+
+
 def test_format_recovery_hint_for_stage1_abort_has_current_guidance() -> None:
     """Stage 1 recovery hint should match current checkpointing and model setup."""
     from src.main import _format_recovery_hint
@@ -147,3 +189,41 @@ def test_bug8_report_does_not_claim_full_history(tmp_path, monkeypatch) -> None:
     report_text = open("outputs/findings_report.md", encoding="utf-8").read()
     assert "full available history" not in report_text
     assert "2,200" in report_text
+
+
+def test_reporting_copy_mentions_new_council_flow(tmp_path, monkeypatch) -> None:
+    """Generated artifacts should describe the revised council flow, not the old one."""
+    from src.agents.insight_reporter import InsightReporter
+
+    monkeypatch.chdir(tmp_path)
+    os.makedirs("outputs", exist_ok=True)
+    reporter = InsightReporter.from_dicts(
+        council_dict={
+            "stage3_synthesis": "A" * 200,
+            "stage2_gap_analysis": "audit",
+            "generated_at": "2026-04-20T00:00:00",
+        },
+        summary_dict={
+            "structured_text": "## Data Overview\nTestApp: 100 reviews",
+            "cross_app_stats": {
+                "TestApp": {
+                    "total_reviews": 100,
+                    "avg_rating": 3.5,
+                    "pct_one_star": 10.0,
+                    "pct_five_star": 25.0,
+                    "reply_rate_pct": 5.0,
+                }
+            },
+            "high_signal_reviews": [],
+            "generated_at": "2026-04-20T00:00:00",
+        },
+    )
+    reporter.generate_all()
+    report_text = open("outputs/findings_report.md", encoding="utf-8").read()
+    linkedin_text = open("outputs/linkedin_snippet.txt", encoding="utf-8").read()
+    readme_text = open("outputs/README.md", encoding="utf-8").read()
+    assert "6-step deliberation" in report_text
+    assert "anonymized evidence audits" in report_text
+    assert "chairman contrarian review" in linkedin_text
+    assert "Stage 2b: Anonymized evidence audits" in readme_text
+    assert "Three Tensions gap analysis" not in report_text + linkedin_text + readme_text

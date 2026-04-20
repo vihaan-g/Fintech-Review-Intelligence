@@ -73,9 +73,16 @@ class InsightReporter:
         Returns an InsightReporter instance ready to call generate_all().
         """
         # Build lightweight proxy objects with the attributes we need
+        audit_synthesis = (
+            council_dict.get("stage2c_audit_synthesis")
+            or council_dict.get("stage2_gap_analysis", "")
+        )
         council_obj = DictProxy(
             stage3_synthesis=council_dict.get("stage3_synthesis", ""),
             stage2_gap_analysis=council_dict.get("stage2_gap_analysis", ""),
+            stage2a_contrarian_pass=council_dict.get("stage2a_contrarian_pass", ""),
+            stage2b_evidence_audits=council_dict.get("stage2b_evidence_audits", {}),
+            stage2c_audit_synthesis=audit_synthesis,
             generated_at=council_dict.get("generated_at", datetime.now(timezone.utc).isoformat()),
             analytical_frame=council_dict.get("analytical_frame", ""),
         )
@@ -145,6 +152,10 @@ class InsightReporter:
 
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
         analytical_frame = getattr(self._council, "analytical_frame", "") or ""
+        stage2a = getattr(self._council, "stage2a_contrarian_pass", "") or ""
+        stage2c = getattr(self._council, "stage2c_audit_synthesis", "") or ""
+        stage2_gap_analysis = stage2c or self._council.stage2_gap_analysis or ""
+        stage2b_audits = getattr(self._council, "stage2b_evidence_audits", {}) or {}
         frame_lines: list[str] = (
             ["", "## Analytical Frame", "", f"> {analytical_frame}"]
             if analytical_frame
@@ -152,10 +163,19 @@ class InsightReporter:
         )
         stage2_lines = [
             "",
-            "## Council Gap Analysis",
+            "## Council Audit Synthesis",
             "",
-            self._council.stage2_gap_analysis or "*Gap analysis unavailable.*",
+            stage2_gap_analysis or "*Audit synthesis unavailable.*",
         ]
+        if stage2a:
+            stage2_lines.extend(["", "## Chairman Contrarian Pass", "", stage2a])
+        if stage2b_audits:
+            stage2_lines.extend(["", "## Evidence Audits", ""])
+            for name, response in stage2b_audits.items():
+                audit_text = response.get("clean_response") if isinstance(response, dict) else getattr(response, "clean_response", "")
+                if not audit_text:
+                    continue
+                stage2_lines.extend([f"### {name}", audit_text, ""])
 
         lines = [
             "# Indian Fintech Play Store Intelligence Report",
@@ -182,9 +202,10 @@ class InsightReporter:
             "summary. This summary was fed to a 4-model LLM council "
             "(Contrarian Chairman [Gemini 3.1 Pro Preview] + First Principles [Claude Opus 4.7] + "
             "Outsider [DeepSeek R1] + Expansionist [Qwen 3.6 Plus]) using a "
-            "Karpathy-adapted 4-stage deliberation: Stage 0 — chairman analytical framing, "
-            "Stage 1 — role-mandated parallel insights, Stage 2 — Contrarian Three Tensions "
-            "gap analysis, Stage 3 — chairman synthesis.",
+            "Karpathy-adapted 6-step deliberation: Stage 0 — chairman analytical framing, "
+            "Stage 1 — specialist insights, Stage 2a — chairman contrarian pass, "
+            "Stage 2b — anonymized evidence audits, Stage 2c — chairman audit synthesis, "
+            "Stage 3 — chairman final report.",
             "",
             "## SQL-Derived Signals",
             "",
@@ -228,8 +249,8 @@ class InsightReporter:
             "## Data Notes",
             "",
             "- Reviews sourced from Play Store (English, India region)",
-            "- Classification model: Gemini 2.5 Flash Lite (Google AI Studio, paid)",
-            "- Council: 4-stage Karpathy-adapted deliberation (Stage 0–3), 4 models",
+            "- Classification model: Gemini 2.5 Flash Lite via OpenRouter",
+            "- Council: Karpathy-adapted staged deliberation with independent specialist analysis and anonymized evidence audits",
             "- All findings reflect user sentiment at time of collection",
             "- Limitations: English reviews only, no account for fake reviews",
         ])
@@ -281,9 +302,9 @@ class InsightReporter:
 
         snippet_parts.extend([
             "",
-            "Method: 8 SQL queries feed a Karpathy-adapted 4-stage council — "
-            "chairman analytical framing, role-mandated parallel insights, "
-            "Contrarian Three Tensions gap analysis, chairman synthesis "
+            "Method: 8 SQL queries feed a Karpathy-adapted council — "
+            "chairman analytical framing, specialist insights, chairman contrarian review, "
+            "anonymized evidence audits, chairman audit synthesis, final chairman report "
             "(Contrarian Chairman [Gemini 3.1 Pro Preview] + First Principles [Claude Opus 4.7] "
             "+ Outsider [DeepSeek R1] + Expansionist [Qwen 3.6 Plus]).",
             "",
@@ -343,13 +364,15 @@ class InsightReporter:
             "SQLite DB (reviews.db)",
             "      ↓ SQLAnalyst (8 queries)",
             "Findings Summary",
-            "      ↓ Gemini 2.5 Flash Lite (batch classification)",
+            "      ↓ Gemini 2.5 Flash Lite via OpenRouter (batch classification)",
             "Classification Results",
             "      ↓ 4-Model Council (Karpathy-adapted)",
             "      │  Stage 0: Contrarian Chairman analytical framing",
-            "      │  Stage 1: Role-mandated parallel insights",
-            "      │  Stage 2: Contrarian Three Tensions gap analysis",
-            "      │  Stage 3: Chairman synthesis",
+            "      │  Stage 1: Specialist insights",
+            "      │  Stage 2a: Chairman contrarian pass",
+            "      │  Stage 2b: Anonymized evidence audits",
+            "      │  Stage 2c: Chairman audit synthesis",
+            "      │  Stage 3: Chairman final report",
             "findings_report.md",
             "```",
             "",
@@ -361,8 +384,8 @@ class InsightReporter:
             "## Tech Stack",
             "",
             "- Python 3.11, SQLite, google-play-scraper",
-            "- Classification: Gemini 2.5 Flash Lite (Google AI Studio, paid — ~₹32/run)",
-            "- Council chairman: Gemini 3.1 Pro Preview (Contrarian Chairman)",
+            "- Classification: Gemini 2.5 Flash Lite via OpenRouter",
+            "- Council chairman: Gemini 3.1 Pro Preview (Contrarian Chairman) via OpenRouter",
             "- Council members: Claude Opus 4.7 (First Principles) + DeepSeek R1 (Outsider) + "
             "Qwen 3.6 Plus (Expansionist) — all via OpenRouter (paid)",
         ])
@@ -372,5 +395,4 @@ class InsightReporter:
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(content)
         return path
-
 

@@ -1072,9 +1072,9 @@ def test_council_orchestrator_chairman_model_id():
 def test_role_mandates_coverage():
     """ROLE_MANDATES contains a key for each member model ID and no key for the chairman."""
     member_ids = {
-        "deepseek/deepseek-r1:free",
-        "qwen/qwen3-235b-a22b:free",
-        "meta-llama/llama-4-maverick:free",
+        "anthropic/claude-opus-4.7",
+        "deepseek/deepseek-r1",
+        "qwen/qwen3.6-plus",
     }
     chairman_id = "gemini-3.1-pro-preview"
     assert set(CouncilOrchestrator.ROLE_MANDATES.keys()) == member_ids
@@ -1547,3 +1547,167 @@ def test_bug10_most_common_rating_deterministic_on_tie():
         assert result["TieApp"]["most_common_rating"] == 1, (
             f"Tie-break failed: expected rating 1, got {result['TieApp']['most_common_rating']}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Council upgrade regression tests
+# ---------------------------------------------------------------------------
+
+def test_preflight_passes_for_paid_model(monkeypatch):
+    """Preflight passes for paid models (pricing.prompt != '0'); only checks catalog existence."""
+    import asyncio
+    import src.council.council_orchestrator as co_module
+    os.environ.setdefault("GEMINI_API_KEY", "test_key")
+    os.environ.setdefault("OPENROUTER_API_KEY", "test_key")
+    config = Config.from_env()
+
+    with DatabaseManager(db_path=":memory:") as db:
+        db.create_schema()
+        orchestrator = CouncilOrchestrator.default(config, db)
+
+    # Build a catalog containing each OpenRouter member with non-zero (paid) pricing.
+    openrouter_ids = [m.model_id for m in orchestrator.members if m.provider == "openrouter"]
+    catalog = {
+        "data": [
+            {"id": mid, "pricing": {"prompt": "0.0015", "completion": "0.002"}}
+            for mid in openrouter_ids
+        ]
+    }
+
+    class _MockResp:
+        def raise_for_status(self) -> None: pass
+        def json(self) -> dict: return catalog
+
+    class _MockClient:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def get(self, url, **kwargs): return _MockResp()
+
+    monkeypatch.setattr(co_module.httpx, "AsyncClient", lambda **kwargs: _MockClient())
+
+    # Should not raise — paid models are valid as long as they exist in catalog.
+    asyncio.run(orchestrator._preflight_openrouter_models())
+
+
+def test_stage0_fail_fast_raises_before_stage1():
+    """Stage 0 fail-fast: empty chairman frame raises RuntimeError; Stage 1 does not fire."""
+    import asyncio
+    os.environ.setdefault("GEMINI_API_KEY", "test_key")
+    os.environ.setdefault("OPENROUTER_API_KEY", "test_key")
+    config = Config.from_env()
+
+    with DatabaseManager(db_path=":memory:") as db:
+        db.create_schema()
+        orchestrator = CouncilOrchestrator.default(config, db)
+
+        async def empty_chairman(prompt: str) -> MemberResponse:
+            return MemberResponse(
+                member_name="chairman", model_id="test",
+                raw_response="", clean_response="",
+                timestamp="2026-04-20T00:00:00", duration_ms=0,
+            )
+
+        orchestrator.chairman.generate = empty_chairman
+
+        # RuntimeError must name the Stage 0 failure; Stage 1 (asyncio.gather)
+        # is never reached because the error is raised before the preflight call.
+        with pytest.raises(RuntimeError, match="Stage 0 failed"):
+            asyncio.run(orchestrator.run("test findings"))
+
+
+def test_stage0_frame_checkpointed_before_stage1(monkeypatch):
+    """Stage 0: frame is persisted to council_stage0_frame in DB before Stage 1 fires."""
+    import asyncio
+    import src.council.council_orchestrator as co_module
+    os.environ.setdefault("GEMINI_API_KEY", "test_key")
+    os.environ.setdefault("OPENROUTER_API_KEY", "test_key")
+    config = Config.from_env()
+
+    TEST_FRAME = "Specific analytical frame for checkpoint test."
+    checkpoint_at_gather: list = [None]
+
+    with DatabaseManager(db_path=":memory:") as db:
+        db.create_schema()
+        orchestrator = CouncilOrchestrator.default(config, db)
+
+        async def mock_chairman(prompt: str) -> MemberResponse:
+            return MemberResponse(
+                member_name="chairman", model_id="test",
+                raw_response=TEST_FRAME, clean_response=TEST_FRAME,
+                timestamp="2026-04-20T00:00:00", duration_ms=0,
+            )
+
+        orchestrator.chairman.generate = mock_chairman
+
+        # Skip HTTP preflight.
+        async def noop_preflight() -> None: pass
+        orchestrator._preflight_openrouter_models = noop_preflight  # type: ignore[method-assign]
+
+        # Intercept Stage 1's asyncio.gather to capture DB state at that moment.
+        # Close unawaited coroutines to suppress RuntimeWarning.
+        async def capturing_gather(*coros, **kwargs):
+            checkpoint_at_gather[0] = db.get_phase_state("council_stage0_frame")
+            for coro in coros:
+                coro.close()
+            raise RuntimeError("gather_intercepted_for_test")
+
+        monkeypatch.setattr(co_module.asyncio, "gather", capturing_gather)
+
+        with pytest.raises(RuntimeError, match="gather_intercepted_for_test"):
+            asyncio.run(orchestrator.run("test findings"))
+
+    state = checkpoint_at_gather[0]
+    assert state is not None, "council_stage0_frame not written before Stage 1"
+    assert state.get("status") == "complete"
+    assert state.get("metadata", {}).get("frame") == TEST_FRAME
+
+
+def test_stage0_skipped_when_frame_cached(monkeypatch):
+    """Stage 0 is skipped entirely when council_stage0_frame is already in pipeline_state."""
+    import asyncio
+    import src.council.council_orchestrator as co_module
+    os.environ.setdefault("GEMINI_API_KEY", "test_key")
+    os.environ.setdefault("OPENROUTER_API_KEY", "test_key")
+    config = Config.from_env()
+
+    CACHED_FRAME = "Cached frame from a previous run."
+    stage0_generate_called = [False]
+
+    with DatabaseManager(db_path=":memory:") as db:
+        db.create_schema()
+        # Pre-populate the Stage 0 checkpoint so run() skips Stage 0.
+        db.save_phase_state("council_stage0_frame", "complete", {"frame": CACHED_FRAME})
+
+        orchestrator = CouncilOrchestrator.default(config, db)
+
+        async def chairman_generate(prompt: str) -> MemberResponse:
+            stage0_generate_called[0] = True
+            return MemberResponse(
+                member_name="chairman", model_id="test",
+                raw_response="new frame", clean_response="new frame",
+                timestamp="2026-04-20T00:00:00", duration_ms=0,
+            )
+
+        orchestrator.chairman.generate = chairman_generate
+
+        # Skip HTTP preflight.
+        async def noop_preflight() -> None: pass
+        orchestrator._preflight_openrouter_models = noop_preflight  # type: ignore[method-assign]
+
+        # Intercept Stage 1 so the test terminates before any member API calls.
+        # Close unawaited coroutines to suppress RuntimeWarning.
+        async def early_exit(*coros, **kwargs):
+            for coro in coros:
+                coro.close()
+            raise RuntimeError("stage1_early_exit_for_test")
+
+        monkeypatch.setattr(co_module.asyncio, "gather", early_exit)
+
+        with pytest.raises(RuntimeError, match="stage1_early_exit_for_test"):
+            asyncio.run(orchestrator.run("test findings"))
+
+    # chairman.generate was NOT called during Stage 0 because the cache was hit.
+    assert not stage0_generate_called[0], (
+        "Stage 0 should be skipped when council_stage0_frame is cached, "
+        "but chairman.generate was called."
+    )

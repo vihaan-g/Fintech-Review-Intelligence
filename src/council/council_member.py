@@ -64,7 +64,7 @@ class CouncilMember:
         Args:
             name:     Human-readable name (e.g. 'DeepSeek R1')
             provider: 'gemini' or 'openrouter'
-            model_id: Full model string (e.g. 'deepseek/deepseek-r1:free')
+            model_id: Full model string (e.g. 'deepseek/deepseek-r1')
             config:   Config instance — extracts API key by provider
         """
         self.name = name

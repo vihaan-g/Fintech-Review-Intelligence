@@ -73,9 +73,9 @@ outputs/linkedin_snippet.txt
 - Python 3.11, SQLite (WAL mode), `google-play-scraper`
 - Classification: Gemini 2.5 Flash Lite (Google AI Studio, paid — ~₹32/run)
 - Council chairman: Gemini 3.1 Pro Preview — Contrarian Chairman (Google AI Studio, paid — ~₹22/run)
-- Council members: DeepSeek R1 (First Principles), Qwen3-235B-A22B (Outsider),
-  Llama 4 Maverick (Expansionist) — all OpenRouter `:free`
-- Estimated cost per full run: ~₹54 (classification ~₹32 + chairman ~₹22; members free)
+- Council members: Claude Opus 4.7 (First Principles), DeepSeek R1 (Outsider),
+  Qwen 3.6 Plus (Expansionist) — all via OpenRouter (paid)
+- Estimated cost per council run: ~$0.059 (Opus 4.7: ~$0.050, DeepSeek R1: ~$0.005, Qwen 3.6 Plus: ~$0.004)
 - All API keys via environment variables — never hardcoded.
 
 ## SQL Queries

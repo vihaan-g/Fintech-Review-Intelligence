@@ -13,15 +13,15 @@ Portfolio project targeting APM/BA roles at Indian fintech startups.
 - Classification: Gemini 2.5 Flash Lite (gemini-2.5-flash-lite) via Google AI Studio (paid, ~₹32/run)
 - Council Chairman: Gemini 3.1 Pro Preview (gemini-3.1-pro-preview) — Contrarian Chairman
   via Google AI Studio (paid, ~₹22/run) — dynamic thinking enabled by default
-- Council Member 1: DeepSeek R1 (deepseek/deepseek-r1:free) via OpenRouter :free — First Principles analyst
-- Council Member 2: Qwen3-235B-A22B (qwen/qwen3-235b-a22b:free) via OpenRouter :free — Outsider analyst
-- Council Member 3: Llama 4 Maverick (meta-llama/llama-4-maverick:free) via OpenRouter :free — Expansionist analyst
+- Council Member 1: Claude Opus 4.7 (anthropic/claude-opus-4.7) via OpenRouter — First Principles analyst
+- Council Member 2: DeepSeek R1 (deepseek/deepseek-r1) via OpenRouter — Outsider analyst
+- Council Member 3: Qwen 3.6 Plus (qwen/qwen3.6-plus) via OpenRouter — Expansionist analyst
 - All API keys via environment variables only — never hardcoded
-- Estimated costs per full run: Classification ~₹32, Chairman ~₹22, Members ₹0 (free tier), Total ~₹54
+- Estimated costs per council run: ~$0.059 total (Opus 4.7: ~$0.050, DeepSeek R1: ~$0.005, Qwen 3.6 Plus: ~$0.004)
 
 ## Council Architecture (Karpathy-adapted)
 
-- 4 models total: Gemini (Contrarian Chairman) + DeepSeek R1 (First Principles) + Qwen3-235B (Outsider) + Llama 4 Maverick (Expansionist)
+- 4 models total: Gemini (Contrarian Chairman) + Claude Opus 4.7 (First Principles) + DeepSeek R1 (Outsider) + Qwen 3.6 Plus (Expansionist)
 - Stage 0: Chairman reads the findings summary and produces a ≤100-word analytical frame (the sharpest question to answer)
 - Stage 1: All 4 models generate insights independently in parallel; each non-chairman member receives their role mandate + analytical frame prepended
 - Stage 2: Chairman acts as Contrarian — anonymized gap analysis (A/B/C/D) with Three Tensions:
@@ -83,10 +83,9 @@ Portfolio project targeting APM/BA roles at Indian fintech startups.
 ## Gotchas (add failures here as you encounter them)
 
 - google-play-scraper: add 0.5s sleep between per-app fetches to avoid rate limits
-- OpenRouter :free models: 50 req/day shared across all free models on one account
-- Qwen3-235B: higher latency than other council members — set a 90s timeout
 - SQLite WAL mode required for concurrent reads during analysis phases
-- Stage 2 prompt must constrain output length or Llama 4 Maverick gets verbose
-- Qwen3-235B responses may include <think>...</think> reasoning blocks
+- DeepSeek R1 responses may include <think>...</think> reasoning blocks
   before the actual answer. Strip these before parsing council output:
   use re.sub(r'<think>.\*?</think>', '', response, flags=re.DOTALL)
+- Qwen 3.6 Plus: can produce verbose output — Stage 2 prompt constrains length
+- OpenRouter paid models: preflight checks catalog existence only (not free-tier pricing)

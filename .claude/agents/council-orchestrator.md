@@ -15,9 +15,9 @@ exists before starting.
 
 Council members and roles:
 - Gemini 3.1 Pro Preview (gemini-3.1-pro-preview) — Contrarian Chairman
-- DeepSeek R1 (deepseek/deepseek-r1:free) — First Principles analyst
-- Qwen3-235B-A22B (qwen/qwen3-235b-a22b:free) — Outsider analyst
-- Llama 4 Maverick (meta-llama/llama-4-maverick:free) — Expansionist analyst
+- Claude Opus 4.7 (anthropic/claude-opus-4.7) — First Principles analyst
+- DeepSeek R1 (deepseek/deepseek-r1) — Outsider analyst
+- Qwen 3.6 Plus (qwen/qwen3.6-plus) — Expansionist analyst
 
 Stage 0: Chairman reads the findings summary and produces a ≤100-word
 analytical frame — the sharpest question this council must answer.

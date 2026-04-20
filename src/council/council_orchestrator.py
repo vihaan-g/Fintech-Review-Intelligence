@@ -42,9 +42,9 @@ class CouncilOrchestrator:
 
     Council members:
       - Gemini 3.1 Pro Preview (Contrarian Chairman) — Google AI Studio Tier 1 paid
-      - DeepSeek R1 — OpenRouter :free [First Principles analyst]
-      - Qwen3-235B-A22B — OpenRouter :free [Outsider analyst]
-      - Llama 4 Maverick — OpenRouter :free [Expansionist analyst]
+      - Claude Opus 4.7 (anthropic/claude-opus-4.7) — OpenRouter [First Principles analyst]
+      - DeepSeek R1 (deepseek/deepseek-r1) — OpenRouter [Outsider analyst]
+      - Qwen 3.6 Plus (qwen/qwen3.6-plus) — OpenRouter [Expansionist analyst]
 
     Stage 0: Chairman frames the analytical question (≤100 words)
     Stage 1: All 4 models generate insights in parallel, each with a role mandate
@@ -190,7 +190,7 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
     # -----------------------------------------------------------------------
 
     ROLE_MANDATES: dict[str, str] = {
-        "deepseek/deepseek-r1:free": (
+        "anthropic/claude-opus-4.7": (
             "ROLE MANDATE — FIRST PRINCIPLES ANALYST\n\n"
             "Your analytical entry point is first principles reasoning. Do not describe what\n"
             "the data shows on the surface. Do not list complaint categories. Instead, ask:\n"
@@ -203,7 +203,7 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
             "trying to compete on feature velocity while cutting the operational cost that\n"
             "customer trust actually requires.\""
         ),
-        "qwen/qwen3-235b-a22b:free": (
+        "deepseek/deepseek-r1": (
             "ROLE MANDATE — OUTSIDER ANALYST\n\n"
             "Your analytical entry point is radical surface-level observation. You have no\n"
             "prior knowledge of Indian fintech, CRED, Jupiter, Groww, Paytm, or PhonePe.\n"
@@ -215,7 +215,7 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
             "question it. Your most valuable output is: \"From the data alone, without\n"
             "assumptions, what is actually strange here that everyone else would normalise?\""
         ),
-        "meta-llama/llama-4-maverick:free": (
+        "qwen/qwen3.6-plus": (
             "ROLE MANDATE — EXPANSIONIST ANALYST\n\n"
             "Your analytical entry point is upside and adjacent signal. Do not focus on\n"
             "problems, complaints, or failures. Look for what everyone else is missing.\n\n"
@@ -230,9 +230,9 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
     }
 
     ROLE_NAMES: dict[str, str] = {
-        "deepseek/deepseek-r1:free": "First Principles",
-        "qwen/qwen3-235b-a22b:free": "Outsider",
-        "meta-llama/llama-4-maverick:free": "Expansionist",
+        "anthropic/claude-opus-4.7": "First Principles",
+        "deepseek/deepseek-r1": "Outsider",
+        "qwen/qwen3.6-plus": "Expansionist",
         "gemini-3.1-pro-preview": "Chairman (Contrarian)",
     }
 
@@ -245,7 +245,7 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
         members: list[CouncilMember],
         chairman: CouncilMember,
         config: Config,
-        db: DatabaseManager,
+        db: DatabaseManager | None = None,
         seed: int | None = None,
     ) -> None:
         """Initialise orchestrator with injected members and chairman.
@@ -254,7 +254,8 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
             members:  All 4 council members (including chairman as a member).
             chairman: The Gemini chairman — also participates in Stage 1.
             config:   Validated Config instance.
-            db:       Open DatabaseManager — used for Stage 0 checkpointing.
+            db:       DatabaseManager for Stage 0 checkpointing. Pass None to
+                      disable checkpointing (e.g., in unit tests).
             seed:     Optional RNG seed for Stage 2 shuffle (None = random).
         """
         assert (
@@ -267,15 +268,15 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
         self._seed = seed
 
     @classmethod
-    def default(cls, config: Config, db: DatabaseManager) -> "CouncilOrchestrator":
+    def default(cls, config: Config, db: DatabaseManager | None = None) -> "CouncilOrchestrator":
         """Factory: instantiate with the standard 4-model council.
 
         Chairman: Gemini 3.1 Pro Preview
         Members:
           - Gemini 3.1 Pro Preview (provider='gemini',     model_id='gemini-3.1-pro-preview')
-          - DeepSeek R1            (provider='openrouter', model_id='deepseek/deepseek-r1:free')
-          - Qwen3-235B             (provider='openrouter', model_id='qwen/qwen3-235b-a22b:free')
-          - Llama 4 Maverick       (provider='openrouter', model_id='meta-llama/llama-4-maverick:free')
+          - Claude Opus 4.7        (provider='openrouter', model_id='anthropic/claude-opus-4.7')
+          - DeepSeek R1            (provider='openrouter', model_id='deepseek/deepseek-r1')
+          - Qwen 3.6 Plus          (provider='openrouter', model_id='qwen/qwen3.6-plus')
 
         Chairman is Gemini — also participates as a council member in Stage 1.
         The same CouncilMember instance is used for both roles.
@@ -289,21 +290,21 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
         members: list[CouncilMember] = [
             chairman,
             CouncilMember(
+                name="Claude Opus 4.7",
+                provider="openrouter",
+                model_id="anthropic/claude-opus-4.7",
+                config=config,
+            ),
+            CouncilMember(
                 name="DeepSeek R1",
                 provider="openrouter",
-                model_id="deepseek/deepseek-r1:free",
+                model_id="deepseek/deepseek-r1",
                 config=config,
             ),
             CouncilMember(
-                name="Qwen3-235B",
+                name="Qwen 3.6 Plus",
                 provider="openrouter",
-                model_id="qwen/qwen3-235b-a22b:free",
-                config=config,
-            ),
-            CouncilMember(
-                name="Llama 4 Maverick",
-                provider="openrouter",
-                model_id="meta-llama/llama-4-maverick:free",
+                model_id="qwen/qwen3.6-plus",
                 config=config,
             ),
         ]
@@ -342,19 +343,18 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
         # -------------------------------------------------------------------
         analytical_frame = self._load_cached_stage0_frame()
         if analytical_frame:
-            logger.info("Stage 0: resuming from cached analytical frame (Stage 0 skipped)")
+            logger.info("Stage 0 skipped — using cached analytical frame from previous run.")
         else:
             analytical_frame = await self._stage0_frame_question(findings_summary)
             if not analytical_frame:
                 raise RuntimeError(
-                    "Stage 0 returned empty content from the chairman model "
-                    "(gemini-3.1-pro-preview). The model may have been safety-filtered, "
-                    "rate-limited, or returned no candidates. Check the Gemini API key, "
-                    "quota, and model ID. Council aborted — Stage 1 requires an analytical frame."
+                    "Stage 0 failed: chairman returned empty analytical frame. "
+                    "Re-run to retry."
                 )
-            self._db.save_phase_state(
-                "council_stage0_frame", "complete", {"frame": analytical_frame}
-            )
+            if self._db is not None:
+                self._db.save_phase_state(
+                    "council_stage0_frame", "complete", {"frame": analytical_frame}
+                )
 
         # -------------------------------------------------------------------
         # Preflight — verify OpenRouter members are listed and free
@@ -521,8 +521,11 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
     def _load_cached_stage0_frame(self) -> str:
         """Return the Stage 0 frame from pipeline_state, or '' if not yet checkpointed.
 
-        Returns empty string on DB errors so Stage 0 re-runs rather than halting.
+        Returns empty string when no DB is configured or on DB errors, so Stage 0
+        re-runs rather than halting.
         """
+        if self._db is None:
+            return ""
         try:
             state = self._db.get_phase_state("council_stage0_frame")
         except Exception as exc:  # noqa: BLE001
@@ -541,11 +544,11 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
         return ""
 
     async def _preflight_openrouter_models(self) -> None:
-        """Verify all OpenRouter council members are listed and free before Stage 1.
+        """Verify all OpenRouter council members exist in the catalog before Stage 1.
 
         Fetches GET /api/v1/models and checks that each OpenRouter member's
-        model_id appears in the response with pricing.prompt == "0".
-        Raises RuntimeError naming all missing or non-free models.
+        model_id appears anywhere in the response data. Paid models are valid —
+        only a completely absent model_id raises RuntimeError.
         Network / auth errors also raise RuntimeError so Stage 1 never fires
         against an unknown API state.
         """
@@ -575,34 +578,24 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
                 ) from exc
             data = resp.json().get("data", [])
 
-        available: dict[str, bool] = {
-            m["id"]: str(m.get("pricing", {}).get("prompt", "")) == "0"
-            for m in data
-            if isinstance(m, dict) and m.get("id")
+        available_ids: set[str] = {
+            m["id"] for m in data if isinstance(m, dict) and m.get("id")
         }
 
-        missing: list[str] = []
-        not_free: list[str] = []
-        for member in openrouter_members:
-            if member.model_id not in available:
-                missing.append(f"{member.name} ({member.model_id})")
-            elif not available[member.model_id]:
-                not_free.append(f"{member.name} ({member.model_id})")
+        missing: list[str] = [
+            f"{member.name} ({member.model_id})"
+            for member in openrouter_members
+            if member.model_id not in available_ids
+        ]
 
-        problems: list[str] = []
         if missing:
-            problems.append(f"not listed on OpenRouter: {', '.join(missing)}")
-        if not_free:
-            problems.append(
-                f"no longer free (pricing.prompt != '0'): {', '.join(not_free)}"
-            )
-        if problems:
             raise RuntimeError(
-                "OpenRouter preflight failed — " + "; ".join(problems) + ". "
+                "OpenRouter preflight failed — model not found in catalog: "
+                + ", ".join(missing) + ". "
                 "Update model IDs in CouncilOrchestrator.default() or check your OpenRouter account."
             )
         logger.info(
-            "OpenRouter preflight passed — %d member model(s) confirmed free",
+            "OpenRouter preflight passed — %d member model(s) confirmed in catalog",
             len(openrouter_members),
         )
 

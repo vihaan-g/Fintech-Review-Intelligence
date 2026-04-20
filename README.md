@@ -22,8 +22,7 @@ The pipeline does five things in order:
    findings summary.
 3. **Classify** — batch-classify every review into product areas
    (onboarding, UX, transactions, support, performance, trust) using
-   Gemini 2.5 Flash Lite. Rate-limited to stay inside the 14 RPM / 1000-per-day
-   Paid tier (Google AI Studio); ~₹32 per full run.
+   Gemini 2.5 Flash Lite (Google AI Studio, paid — ~₹32/run; Tier 1: 4,000 RPM).
 4. **Council** — run a 4-stage LLM deliberation:
    - Stage 0: chairman frames the analytical question (≤100 words).
    - Stage 1: four models generate insights independently, in parallel,

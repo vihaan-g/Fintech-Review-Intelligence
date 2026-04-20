@@ -23,7 +23,7 @@ _BACKOFF_BASE_SECONDS = 10.0
 class GeminiQuotaExhaustedError(RuntimeError):
     """Raised when Gemini returns 429 after all retries are exhausted.
 
-    Signals that the free-tier daily quota (1,000 req/day) is likely hit.
+    Signals that the Tier 1 paid daily quota is likely hit.
     BatchProcessor catches this, checkpoints progress, and exits cleanly
     so the run can resume tomorrow.
     """

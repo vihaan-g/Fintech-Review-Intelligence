@@ -180,8 +180,8 @@ class InsightReporter:
             "developer reply impact, review volume by week, classification breakdown, and "
             "top classified complaints) to produce a structured findings "
             "summary. This summary was fed to a 4-model LLM council "
-            "(Contrarian Chairman [Gemini 3.1 Pro] + First Principles [DeepSeek R1] + "
-            "Outsider [Qwen3-235B] + Expansionist [Llama 4 Maverick]) using a "
+            "(Contrarian Chairman [Gemini 3.1 Pro Preview] + First Principles [Claude Opus 4.7] + "
+            "Outsider [DeepSeek R1] + Expansionist [Qwen 3.6 Plus]) using a "
             "Karpathy-adapted 4-stage deliberation: Stage 0 — chairman analytical framing, "
             "Stage 1 — role-mandated parallel insights, Stage 2 — Contrarian Three Tensions "
             "gap analysis, Stage 3 — chairman synthesis.",
@@ -284,8 +284,8 @@ class InsightReporter:
             "Method: 8 SQL queries feed a Karpathy-adapted 4-stage council — "
             "chairman analytical framing, role-mandated parallel insights, "
             "Contrarian Three Tensions gap analysis, chairman synthesis "
-            "(Contrarian Chairman [Gemini 3.1 Pro Preview] + First Principles [DeepSeek R1] "
-            "+ Outsider [Qwen3-235B] + Expansionist [Llama 4 Maverick]).",
+            "(Contrarian Chairman [Gemini 3.1 Pro Preview] + First Principles [Claude Opus 4.7] "
+            "+ Outsider [DeepSeek R1] + Expansionist [Qwen 3.6 Plus]).",
             "",
             "Full methodology + data: github.com/vihaan-g/fintech-review-intelligence",
         ])
@@ -363,8 +363,8 @@ class InsightReporter:
             "- Python 3.11, SQLite, google-play-scraper",
             "- Classification: Gemini 2.5 Flash Lite (Google AI Studio, paid — ~₹32/run)",
             "- Council chairman: Gemini 3.1 Pro Preview (Contrarian Chairman)",
-            "- Council members: DeepSeek R1 (First Principles) + Qwen3-235B (Outsider) + "
-            "Llama 4 Maverick (Expansionist) — all OpenRouter :free",
+            "- Council members: Claude Opus 4.7 (First Principles) + DeepSeek R1 (Outsider) + "
+            "Qwen 3.6 Plus (Expansionist) — all via OpenRouter (paid)",
         ])
 
         content = "\n".join(lines)
@@ -372,6 +372,5 @@ class InsightReporter:
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(content)
         return path
-
 
 

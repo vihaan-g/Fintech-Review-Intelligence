@@ -18,8 +18,8 @@ Key behaviors:
   the full stage2_gap_analysis text (which contains TENSION blocks from
   the Contrarian Chairman's Three Tensions analysis).
 - Reference council members by role name throughout all outputs:
-  First Principles [DeepSeek R1], Outsider [Qwen3-235B],
-  Expansionist [Llama 4 Maverick].
+  First Principles [Claude Opus 4.7], Outsider [DeepSeek R1],
+  Expansionist [Qwen 3.6 Plus].
 - Label the chairman as "Contrarian Chairman [Gemini 3.1 Pro Preview]"
   in all attribution.
 - The council is 4-stage (Stage 0–3); always say "4-stage" not "3-stage".

@@ -21,8 +21,8 @@ _GEMINI_ENDPOINT_TEMPLATE = (
 _OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 
-_TIMEOUT_GEMINI = 90.0
-_TIMEOUT_OPENROUTER = 90.0  # Qwen3-235B can be slow
+_TIMEOUT_GEMINI = 600.0  # 10 min — chairman needs time for dynamic thinking on large Stage 1/2 prompts
+_TIMEOUT_OPENROUTER = 90.0  # OpenRouter paid models can be slow
 
 _MAX_RETRIES = 3
 _RETRYABLE_STATUS_CODES = frozenset([408, 429, 500, 502, 503, 504])
@@ -45,7 +45,8 @@ class CouncilMember:
     """Represents one LLM in the council. Handles its own API calls.
 
     Supports two providers: 'gemini' (Google AI Studio) and
-    'openrouter' (OpenRouter unified API for DeepSeek, Qwen3, Llama 4).
+    'openrouter' (OpenRouter unified API for Claude Opus 4.7, DeepSeek R1,
+    and Qwen 3.6 Plus).
     Strips <think>...</think> blocks from responses before returning.
 
     Fatal HTTP 4xx errors (bad model ID, auth failure) are re-raised from

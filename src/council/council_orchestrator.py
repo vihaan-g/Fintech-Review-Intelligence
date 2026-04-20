@@ -160,7 +160,7 @@ List 3–5 findings. For each:
 
 **Finding [N]: [One-line title]**
 - **Insight:** [Specific claim with numbers where available]
-- **Evidence base:** [Which models surfaced this; e.g. "DeepSeek R1 + Qwen3 independently; Stage 2 HIGH CONFIDENCE"]
+- **Evidence base:** [Which models surfaced this; e.g. "Claude Opus 4.7 + DeepSeek R1 independently; Stage 2 HIGH CONFIDENCE"]
 - **Confidence:** HIGH | MEDIUM | LOW
   - HIGH = 2+ models surfaced this independently
   - MEDIUM = 1 model + consistent with data patterns in Stage 1
@@ -282,7 +282,7 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
         The same CouncilMember instance is used for both roles.
         """
         chairman = CouncilMember(
-            name="Gemini 3.1 Pro (Chairman)",
+            name="Gemini 3.1 Pro Preview (Chairman)",
             provider="gemini",
             model_id="gemini-3.1-pro-preview",
             config=config,
@@ -363,40 +363,60 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
 
         # -------------------------------------------------------------------
         # Stage 1 — parallel independent insight generation
+        # Per-member caching: each response is checkpointed individually on
+        # success. On retry only uncached (previously failed) members re-run,
+        # so successful OpenRouter calls are never re-billed.
         # -------------------------------------------------------------------
-        t1_start = time.monotonic()
-        gathered = await asyncio.gather(
-            *[
-                member.generate(
-                    self._build_stage1_prompt_for_member(
-                        member, findings_summary, analytical_frame
+        members_to_run: list[CouncilMember] = []
+        responses_by_id: dict[str, MemberResponse] = {}
+
+        for member in self.members:
+            cached = self._load_cached_member_response(member)
+            if cached is not None:
+                responses_by_id[member.model_id] = cached
+            else:
+                members_to_run.append(member)
+
+        if not members_to_run:
+            logger.info("Stage 1 skipped — using cached member responses from previous run.")
+        else:
+            if responses_by_id:
+                logger.info(
+                    "Stage 1 partial resume — %d cached, re-running: %s",
+                    len(responses_by_id),
+                    ", ".join(self._member_label(m) for m in members_to_run),
+                )
+            t1_start = time.monotonic()
+            gathered = await asyncio.gather(
+                *[
+                    member.generate(
+                        self._build_stage1_prompt_for_member(
+                            member, findings_summary, analytical_frame
+                        )
                     )
-                )
-                for member in self.members
-            ],
-            return_exceptions=True,
-        )
-        stage1_list: list[MemberResponse] = []
-        for member, item in zip(self.members, gathered):
-            if isinstance(item, BaseException):
-                # Bug 7: fatal 4xx errors (auth failure, bad model ID) must halt
-                # Stage 1, not silently become empty slots. Transient errors
-                # (network, exhausted 429) still produce empty slots as before.
-                if isinstance(item, httpx.HTTPStatusError):
-                    status_code = item.response.status_code
-                    if 400 <= status_code < 500 and status_code != 429:
-                        raise RuntimeError(
-                            f"Stage 1 member {self._member_label(member)} returned fatal "
-                            f"HTTP {status_code} (model: {member.model_id}). "
-                            "Check API key and model ID. Council aborted."
-                        ) from item
-                logger.warning(
-                    "Stage 1 member %s raised %s — recording empty response",
-                    self._member_label(member),
-                    item,
-                )
-                stage1_list.append(
-                    MemberResponse(
+                    for member in members_to_run
+                ],
+                return_exceptions=True,
+            )
+            for member, item in zip(members_to_run, gathered):
+                if isinstance(item, BaseException):
+                    # Bug 7: fatal 4xx errors (auth failure, bad model ID) must halt
+                    # Stage 1, not silently become empty slots. Transient errors
+                    # (network, exhausted 429) still produce empty slots as before.
+                    if isinstance(item, httpx.HTTPStatusError):
+                        status_code = item.response.status_code
+                        if 400 <= status_code < 500 and status_code != 429:
+                            raise RuntimeError(
+                                f"Stage 1 member {self._member_label(member)} returned fatal "
+                                f"HTTP {status_code} (model: {member.model_id}). "
+                                "Check API key and model ID. Council aborted."
+                            ) from item
+                    logger.warning(
+                        "Stage 1 member %s raised %s — recording empty response",
+                        self._member_label(member),
+                        item,
+                    )
+                    responses_by_id[member.model_id] = MemberResponse(
                         member_name=member.name,
                         model_id=member.model_id,
                         raw_response=f"[error] {item}",
@@ -404,44 +424,57 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
                         timestamp=datetime.now(timezone.utc).isoformat(),
                         duration_ms=0,
                     )
+                else:
+                    responses_by_id[member.model_id] = item
+                    # Checkpoint immediately — committed by save_phase_state so
+                    # the write survives even if a later member raises.
+                    self._checkpoint_stage1_response(member, item)
+            t1_ms = int((time.monotonic() - t1_start) * 1000)
+            logger.info(
+                "Council Stage 1 gather finished — %d new responses in %dms",
+                len(members_to_run),
+                t1_ms,
+            )
+
+        stage1_list: list[MemberResponse] = [
+            responses_by_id[m.model_id] for m in self.members
+        ]
+
+        # Log every response (cached or fresh, success or failure) so the terminal
+        # shows what each member produced before the fail-fast check.
+        for member, resp in zip(self.members, stage1_list):
+            label = self._member_label(member)
+            source = "" if member in members_to_run else " (cached)"
+            if resp.clean_response.strip():
+                preview = resp.clean_response[:600] + (
+                    "\n[…truncated]" if len(resp.clean_response) > 600 else ""
                 )
             else:
-                stage1_list.append(item)
-        t1_ms = int((time.monotonic() - t1_start) * 1000)
-        logger.info(
-            "Council Stage 1 complete — %d responses in %dms",
-            len(stage1_list),
-            t1_ms,
-        )
+                preview = f"[no content — {resp.raw_response[:120]}]"
+            logger.info(
+                "=== Stage 1 — %s%s ===\n%s\n================================",
+                label,
+                source,
+                preview,
+            )
+
+        # Fail-fast: any empty response halts the pipeline before Stage 2.
+        failed_labels = [
+            self._member_label(m)
+            for m, r in zip(self.members, stage1_list)
+            if not r.clean_response.strip()
+        ]
+        if failed_labels:
+            raise RuntimeError(
+                f"Stage 1 aborted — {len(failed_labels)} member(s) returned empty responses: "
+                + ", ".join(failed_labels)
+                + ". Successful responses were checkpointed. Re-run to retry failed members only."
+            )
+
         stage1_responses: dict[str, MemberResponse] = {
             self._member_label(member): resp
             for member, resp in zip(self.members, stage1_list)
         }
-
-        # Guard: Stage 2+ is meaningless if nobody returned useful text.
-        if not any(r.clean_response.strip() for r in stage1_list):
-            # H9: persist raw stage1 outputs before raising so there is something
-            # to debug from even when the run fails here.
-            os.makedirs("outputs", exist_ok=True)
-            stage1_raw_path = os.path.join("outputs", "council_stage1_raw.json")
-            try:
-                with open(stage1_raw_path, "w", encoding="utf-8") as fh:
-                    json.dump(
-                        [dataclasses.asdict(r) for r in stage1_list],
-                        fh,
-                        indent=2,
-                        ensure_ascii=False,
-                    )
-                logger.info(
-                    "Stage 1 raw responses saved to %s for debugging", stage1_raw_path
-                )
-            except OSError as exc:
-                logger.warning("Could not save stage1 raw debug output: %s", exc)
-            raise RuntimeError(
-                "All Stage 1 members returned empty responses. "
-                "Check API keys, network connectivity, and OpenRouter / "
-                "Gemini quota. Council aborted — nothing to synthesise."
-            )
 
         # -------------------------------------------------------------------
         # Stage 2 — anonymized gap-finding review (chairman only)
@@ -466,8 +499,8 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
             logger.warning(
                 "Stage 2 gap analysis is empty — chairman may have been "
                 "safety-filtered or rate-limited. Stage 3 will proceed with "
-                "stage 1 responses only. Check council_stage1_raw.json and "
-                "re-run if a cleaner synthesis is needed."
+                "stage 1 responses only. Successful Stage 1 responses remain "
+                "checkpointed; re-run if a cleaner synthesis is needed."
             )
             stage2_gap_analysis = (
                 "[Stage 2 gap analysis unavailable — chairman returned empty. "
@@ -542,6 +575,63 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
                 )
             return frame
         return ""
+
+    @staticmethod
+    def _sanitize_model_key(model_id: str) -> str:
+        """Replace / and : with _ so model_id is safe as a pipeline_state key."""
+        return model_id.replace("/", "_").replace(":", "_")
+
+    def _stage1_cache_key(self, model_id: str) -> str:
+        """Return the pipeline_state key for a member's Stage 1 response."""
+        return f"council_stage1_{self._sanitize_model_key(model_id)}"
+
+    def _load_cached_member_response(self, member: CouncilMember) -> MemberResponse | None:
+        """Return a single member's Stage 1 response from cache, or None.
+
+        Returns None when the DB is not configured, the key is absent, the cached
+        response is empty (member failed on the prior run), or a DB read fails.
+        Returning None causes the caller to add this member to the re-run list.
+        """
+        if self._db is None:
+            return None
+        key = self._stage1_cache_key(member.model_id)
+        try:
+            state = self._db.get_phase_state(key)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Could not read Stage 1 cache for %s: %s — will re-run",
+                member.model_id,
+                exc,
+            )
+            return None
+        if not (state and state.get("status") == "complete"):
+            return None
+        meta = state.get("metadata") or {}
+        clean = meta.get("clean_response", "")
+        if not clean.strip():
+            return None
+        return MemberResponse(
+            member_name=meta.get("member_name", member.name),
+            model_id=meta.get("model_id", member.model_id),
+            raw_response=meta.get("raw_response", ""),
+            clean_response=clean,
+            timestamp=meta.get("timestamp", datetime.now(timezone.utc).isoformat()),
+            duration_ms=meta.get("duration_ms", 0),
+        )
+
+    def _checkpoint_stage1_response(self, member: CouncilMember, resp: MemberResponse) -> None:
+        """Persist one successful Stage 1 response to pipeline_state.
+
+        save_phase_state commits immediately, so this write survives even when a
+        later member raises and the DB context manager rolls back uncommitted state.
+        """
+        if self._db is None:
+            return
+        key = self._stage1_cache_key(member.model_id)
+        try:
+            self._db.save_phase_state(key, "complete", dataclasses.asdict(resp))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not checkpoint Stage 1 response for %s: %s", key, exc)
 
     async def _preflight_openrouter_models(self) -> None:
         """Verify all OpenRouter council members exist in the catalog before Stage 1.

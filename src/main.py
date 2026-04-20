@@ -374,12 +374,12 @@ def _format_recovery_hint(exc: BaseException) -> str:
             "Fix: copy .env.example to .env and fill in GEMINI_API_KEY and "
             "OPENROUTER_API_KEY, then re-run."
         )
-    if isinstance(exc, RuntimeError) and "All Stage 1 members returned empty" in str(exc):
+    if isinstance(exc, RuntimeError) and "Stage 1 aborted" in str(exc):
         return (
-            "Fix: check outputs/council_stage1_raw.json for the raw responses. "
-            "Most likely causes: (1) OpenRouter :free daily quota hit — wait "
-            "and re-run, (2) bad OPENROUTER_API_KEY, (3) model IDs withdrawn "
-            "from OpenRouter :free (update council_orchestrator.default())."
+            "Fix: inspect the Stage 1 member errors in the logs, then re-run. "
+            "Successful member responses were checkpointed, so only failed members "
+            "will retry. Common causes: bad OPENROUTER_API_KEY, OpenRouter rate "
+            "limits, or a withdrawn/renamed model ID."
         )
     return (
         "Fix: inspect the traceback above, check outputs/ for partial state, "

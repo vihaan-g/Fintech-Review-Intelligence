@@ -630,6 +630,69 @@ def test_insight_reporter_generates_all_files(tmp_path, monkeypatch):
     assert result.word_count > 0
 
 
+def test_insight_reporter_uses_live_council_roster_in_outputs(tmp_path, monkeypatch):
+    """Generated outputs should reflect the live council roster and role mapping."""
+    from src.agents.insight_reporter import InsightReporter
+
+    monkeypatch.chdir(tmp_path)
+    os.makedirs("outputs", exist_ok=True)
+
+    reporter = InsightReporter.from_dicts(
+        council_dict={
+            "stage3_synthesis": "A" * 200,
+            "stage2_gap_analysis": "some gap analysis",
+            "generated_at": "2026-04-20T00:00:00",
+        },
+        summary_dict={
+            "structured_text": "## Data Overview\nTestApp: 100 reviews",
+            "cross_app_stats": {
+                "TestApp": {
+                    "total_reviews": 100,
+                    "avg_rating": 3.5,
+                    "pct_one_star": 10.0,
+                    "pct_five_star": 25.0,
+                    "reply_rate_pct": 5.0,
+                }
+            },
+            "high_signal_reviews": [],
+            "generated_at": "2026-04-20T00:00:00",
+        },
+    )
+    reporter.generate_all()
+
+    report_text = open("outputs/findings_report.md").read()
+    linkedin_text = open("outputs/linkedin_snippet.txt").read()
+    readme_text = open("outputs/README.md").read()
+
+    assert "Contrarian Chairman [Gemini 3.1 Pro Preview]" in report_text
+    assert "First Principles [Claude Opus 4.7]" in report_text
+    assert "Outsider [DeepSeek R1]" in report_text
+    assert "Expansionist [Qwen 3.6 Plus]" in report_text
+    assert "First Principles [Claude Opus 4.7]" in linkedin_text
+    assert "Outsider [DeepSeek R1]" in linkedin_text
+    assert "Expansionist [Qwen 3.6 Plus]" in linkedin_text
+    assert "Claude Opus 4.7 (First Principles)" in readme_text
+    assert "DeepSeek R1 (Outsider)" in readme_text
+    assert "Qwen 3.6 Plus (Expansionist)" in readme_text
+    assert "Qwen3-235B" not in report_text + linkedin_text + readme_text
+    assert "Llama 4 Maverick" not in report_text + linkedin_text + readme_text
+    assert "First Principles [DeepSeek R1]" not in report_text + linkedin_text
+
+
+def test_format_recovery_hint_for_stage1_abort_has_current_guidance():
+    """Stage 1 recovery hint should match current checkpointing and model setup."""
+    from src.main import _format_recovery_hint
+
+    hint = _format_recovery_hint(
+        RuntimeError("Stage 1 aborted — 2 member(s) returned empty responses")
+    )
+
+    assert "checkpointed" in hint
+    assert "OPENROUTER_API_KEY" in hint
+    assert "council_stage1_raw.json" not in hint
+    assert ":free" not in hint
+
+
 # ---------------------------------------------------------------------------
 # L3 — Classification round-trip test
 # ---------------------------------------------------------------------------
@@ -1057,6 +1120,121 @@ def test_classifier_still_retries_429_after_success(monkeypatch):
         classifier._call_gemini("test prompt")
     # All 5 retries should have fired (no fast-fail path).
     assert call_count[0] == 5
+
+
+def test_stage1_responses_checkpointed_before_stage2(monkeypatch):
+    """Stage 1 checkpoint: all 3 OpenRouter member keys written to pipeline_state
+    before Stage 2 fires."""
+    import asyncio
+    import src.council.council_orchestrator as co_module
+
+    os.environ.setdefault("GEMINI_API_KEY", "test_key")
+    os.environ.setdefault("OPENROUTER_API_KEY", "test_key")
+    config = Config.from_env()
+
+    keys_before_stage2: dict = {}
+
+    with DatabaseManager(db_path=":memory:") as db:
+        db.create_schema()
+        db.save_phase_state("council_stage0_frame", "complete", {"frame": "Test frame."})
+        orchestrator = CouncilOrchestrator.default(config, db)
+
+        async def mock_generate(prompt: str) -> MemberResponse:
+            return MemberResponse(
+                member_name="test", model_id="test-model",
+                raw_response="insight", clean_response="insight",
+                timestamp="2026-04-20T00:00:00", duration_ms=50,
+            )
+        for member in orchestrator.members:
+            member.generate = mock_generate
+
+        async def noop_preflight() -> None:
+            pass
+        orchestrator._preflight_openrouter_models = noop_preflight  # type: ignore[method-assign]
+
+        # Intercept Stage 2: chairman.generate is called once in Stage 1 (as a member)
+        # and again in Stage 2. The second call is Stage 2 — capture DB state then.
+        chairman_calls = [0]
+
+        async def intercept_chairman(prompt: str) -> MemberResponse:
+            chairman_calls[0] += 1
+            if chairman_calls[0] == 1:
+                return MemberResponse(
+                    member_name="chairman", model_id="gemini-3.1-pro-preview",
+                    raw_response="insight", clean_response="insight",
+                    timestamp="2026-04-20T00:00:00", duration_ms=50,
+                )
+            # Second call = Stage 2 — capture keys and stop
+            openrouter_members = [m for m in orchestrator.members if m.provider == "openrouter"]
+            for m in openrouter_members:
+                key = orchestrator._stage1_cache_key(m.model_id)
+                keys_before_stage2[key] = db.get_phase_state(key)
+            raise RuntimeError("intercepted_stage2_for_test")
+
+        orchestrator.chairman.generate = intercept_chairman
+
+        with pytest.raises(RuntimeError, match="intercepted_stage2_for_test"):
+            asyncio.run(orchestrator.run("test findings"))
+
+    assert keys_before_stage2, "Stage 2 was never reached"
+    for key, state in keys_before_stage2.items():
+        assert state is not None, f"Key {key!r} missing from pipeline_state before Stage 2"
+        assert state.get("status") == "complete", f"Key {key!r} status is not 'complete'"
+
+
+def test_stage1_skipped_when_all_member_keys_cached(monkeypatch):
+    """Stage 1 resume: asyncio.gather is not called when all 3 OpenRouter keys are
+    pre-populated in pipeline_state."""
+    import asyncio
+    import src.council.council_orchestrator as co_module
+
+    os.environ.setdefault("GEMINI_API_KEY", "test_key")
+    os.environ.setdefault("OPENROUTER_API_KEY", "test_key")
+    config = Config.from_env()
+
+    with DatabaseManager(db_path=":memory:") as db:
+        db.create_schema()
+        db.save_phase_state("council_stage0_frame", "complete", {"frame": "Cached frame."})
+        orchestrator = CouncilOrchestrator.default(config, db)
+
+        # Pre-populate all 4 member Stage 1 keys (skip requires all 4 non-empty)
+        for member in orchestrator.members:
+            key = orchestrator._stage1_cache_key(member.model_id)
+            db.save_phase_state(key, "complete", {
+                "member_name": member.name,
+                "model_id": member.model_id,
+                "raw_response": f"cached insight from {member.name}",
+                "clean_response": f"cached insight from {member.name}",
+                "timestamp": "2026-04-20T00:00:00",
+                "duration_ms": 100,
+            })
+
+        # Track whether asyncio.gather is ever called (it should NOT be)
+        gather_called = [False]
+        original_gather = asyncio.gather
+
+        async def tracking_gather(*coros, **kwargs):
+            gather_called[0] = True
+            return await original_gather(*coros, **kwargs)
+
+        monkeypatch.setattr(co_module.asyncio, "gather", tracking_gather)
+
+        async def noop_preflight() -> None:
+            pass
+        orchestrator._preflight_openrouter_models = noop_preflight  # type: ignore[method-assign]
+
+        # Stop at Stage 2 to avoid real API calls
+        async def stop_at_stage2(prompt: str) -> MemberResponse:
+            raise RuntimeError("stage2_intercepted_for_test")
+
+        orchestrator.chairman.generate = stop_at_stage2
+
+        with pytest.raises(RuntimeError, match="stage2_intercepted_for_test"):
+            asyncio.run(orchestrator.run("test findings"))
+
+    assert not gather_called[0], (
+        "asyncio.gather was called — Stage 1 was not skipped despite all 3 cached keys"
+    )
 
 
 def test_council_orchestrator_chairman_model_id():

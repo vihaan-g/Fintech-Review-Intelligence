@@ -14,6 +14,7 @@ import httpx
 
 from src.config import Config
 from src.council.council_member import CouncilMember, MemberResponse
+from src.data_collection.database_manager import DatabaseManager
 
 logger = logging.getLogger(__name__)
 
@@ -241,6 +242,7 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
         members: list[CouncilMember],
         chairman: CouncilMember,
         config: Config,
+        db: DatabaseManager,
         seed: int | None = None,
     ) -> None:
         """Initialise orchestrator with injected members and chairman.
@@ -249,6 +251,7 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
             members:  All 4 council members (including chairman as a member).
             chairman: The Gemini chairman — also participates in Stage 1.
             config:   Validated Config instance.
+            db:       Open DatabaseManager — used for Stage 0 checkpointing.
             seed:     Optional RNG seed for Stage 2 shuffle (None = random).
         """
         assert (
@@ -257,10 +260,11 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
         self.members = members
         self.chairman = chairman
         self.config = config
+        self._db = db
         self._seed = seed
 
     @classmethod
-    def default(cls, config: Config) -> "CouncilOrchestrator":
+    def default(cls, config: Config, db: DatabaseManager) -> "CouncilOrchestrator":
         """Factory: instantiate with the standard 4-model council.
 
         Chairman: Gemini 3.1 Pro Preview
@@ -300,7 +304,7 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
                 config=config,
             ),
         ]
-        return cls(members=members, chairman=chairman, config=config)
+        return cls(members=members, chairman=chairman, config=config, db=db)
 
     # -----------------------------------------------------------------------
     # Public interface
@@ -328,15 +332,26 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
         generated_at = datetime.now(timezone.utc).isoformat()
 
         # -------------------------------------------------------------------
-        # Stage 0 — chairman frames the analytical question
+        # Stage 0 — chairman frames the analytical question.
+        # Checkpointed in pipeline_state("council_stage0_frame") so reruns
+        # skip Stage 0 and use the cached frame without re-billing the chairman.
+        # Fatal API errors propagate — empty content halts the pipeline.
         # -------------------------------------------------------------------
-        try:
+        analytical_frame = self._load_cached_stage0_frame()
+        if analytical_frame:
+            logger.info("Stage 0: resuming from cached analytical frame (Stage 0 skipped)")
+        else:
             analytical_frame = await self._stage0_frame_question(findings_summary)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "Stage 0 framing failed (%s) — proceeding without analytical frame", exc
+            if not analytical_frame:
+                raise RuntimeError(
+                    "Stage 0 returned empty content from the chairman model "
+                    "(gemini-3.1-pro-preview). The model may have been safety-filtered, "
+                    "rate-limited, or returned no candidates. Check the Gemini API key, "
+                    "quota, and model ID. Council aborted — Stage 1 requires an analytical frame."
+                )
+            self._db.save_phase_state(
+                "council_stage0_frame", "complete", {"frame": analytical_frame}
             )
-            analytical_frame = ""
 
         # -------------------------------------------------------------------
         # Stage 1 — parallel independent insight generation
@@ -494,6 +509,28 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
     # -----------------------------------------------------------------------
     # Prompt builders
     # -----------------------------------------------------------------------
+
+    def _load_cached_stage0_frame(self) -> str:
+        """Return the Stage 0 frame from pipeline_state, or '' if not yet checkpointed.
+
+        Returns empty string on DB errors so Stage 0 re-runs rather than halting.
+        """
+        try:
+            state = self._db.get_phase_state("council_stage0_frame")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Could not read council_stage0_frame from pipeline_state: %s — will re-run Stage 0",
+                exc,
+            )
+            return ""
+        if state and state.get("status") == "complete":
+            frame: str = (state.get("metadata") or {}).get("frame", "")
+            if frame:
+                logger.info(
+                    "Stage 0 cache hit — frame saved at %s", state.get("updated_at", "unknown")
+                )
+            return frame
+        return ""
 
     def _member_label(self, member: CouncilMember) -> str:
         """Return display label: 'Name [Role]' if ROLE_NAMES entry exists, else 'Name'."""

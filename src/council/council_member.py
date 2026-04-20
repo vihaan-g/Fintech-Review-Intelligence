@@ -20,11 +20,11 @@ _GEMINI_ENDPOINT_TEMPLATE = (
 _OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 
-_TIMEOUT_GEMINI = 30.0
+_TIMEOUT_GEMINI = 90.0
 _TIMEOUT_OPENROUTER = 90.0  # Qwen3-235B can be slow
 
 _MAX_RETRIES = 3
-_RETRYABLE_STATUS_CODES = frozenset([429, 500, 502, 503, 504])
+_RETRYABLE_STATUS_CODES = frozenset([408, 429, 500, 502, 503, 504])
 _BACKOFF_BASE_SECONDS = 5.0
 
 
@@ -80,7 +80,7 @@ class CouncilMember:
         """Send prompt to this member's model and return MemberResponse.
 
         Creates one AsyncClient per generate() call with per-provider timeout
-        (30s for Gemini, 90s for OpenRouter). The client is shared across any
+        (90s for Gemini, 90s for OpenRouter). The client is shared across any
         internal retries that _call_gemini / _call_openrouter may perform.
 
         Fatal HTTP 4xx errors propagate (bad model ID → 404, auth → 401/403,
@@ -290,7 +290,7 @@ class CouncilMember:
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "HTTP-Referer": "https://github.com/vihaan-g/fintech-review-intelligence",
-            "X-Title": "Fintech Review Intelligence",
+            "X-OpenRouter-Title": "Fintech Review Intelligence",
         }
         body = {
             "model": self.model_id,

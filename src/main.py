@@ -290,7 +290,7 @@ def main() -> None:
                     with open("outputs/council_result.json", "w", encoding="utf-8") as f:
                         json.dump(mock_result, f, indent=2)
                 else:
-                    orchestrator = CouncilOrchestrator.default(config=config)
+                    orchestrator = CouncilOrchestrator.default(config=config, db=db)
                     council_result = orchestrator.run_sync(findings_text)
                     db.save_phase_state("council", "complete")
                     logger.info("Council complete — synthesis ready")

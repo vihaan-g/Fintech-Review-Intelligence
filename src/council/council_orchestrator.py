@@ -14,6 +14,7 @@ import httpx
 
 from src.config import Config
 from src.council.council_member import CouncilMember, MemberResponse
+from src.council.council_prompts import CouncilPrompts
 from src.data_collection.database_manager import DatabaseManager
 
 logger = logging.getLogger(__name__)
@@ -42,170 +43,13 @@ class CouncilResult:
 class CouncilOrchestrator:
     """Coordinates the revised OpenRouter-only council flow."""
 
-    STAGE1_PROMPT: str = """You are a senior product analyst specializing in Indian consumer fintech.
-
-ANALYTICAL FRAME
-{analytical_frame}
-
-FINDINGS SUMMARY
-{findings_summary}
-
-Write 3-5 evidence-grounded insights.
-
-For each insight use exactly this structure:
-**Insight [N]: [Title]**
-- **App(s):** [specific app names]
-- **Data signal:** [specific metric, quote, or asymmetry from the findings]
-- **Hypothesis:** [1-2 sentences explaining why this pattern may exist]
-- **Implication:** [specific PM action or decision impact]
-
-Rules:
-1. Every claim must be grounded in the findings.
-2. Prefer structural asymmetries across apps over generic complaints.
-3. Do not restate the dashboard; surface what matters most.
-4. Stay tightly tied to Indian fintech product behavior, trust, onboarding, support, and payment flows.
-"""
-
-    STAGE2A_PROMPT: str = """You are the Contrarian Chairman of an Indian fintech product-intelligence council.
-
-ANALYTICAL FRAME
-{analytical_frame}
-
-FINDINGS SUMMARY
-{findings_summary}
-
-ANONYMIZED STAGE 1 OUTPUTS
-{labeled_responses}
-
-Your task is an independent contrarian pass.
-
-Identify:
-1. the strongest supported convergence
-2. the most important weakly-supported leap
-3. the most important missed tension or asymmetry
-
-Use exactly this structure:
-## Confirmed Signals
-- [signal + why it is well-supported]
-
-## Weak Leaps
-- [claim that outruns evidence + why]
-
-## Missing Tensions
-- [important unresolved tension or blind spot]
-
-Keep it under 250 words and quote or reference evidence directly.
-"""
-
-    STAGE2B_PROMPT: str = """You are conducting an anonymized evidence audit of specialist council outputs about Indian fintech Play Store reviews.
-
-ANALYTICAL FRAME
-{analytical_frame}
-
-FINDINGS SUMMARY
-{findings_summary}
-
-ANONYMIZED STAGE 1 OUTPUTS
-{labeled_responses}
-
-Audit only the evidence quality of these responses.
-
-Use exactly this structure:
-## Supported Claims
-- [response label + specific claim that is well-grounded]
-
-## Evidence Gaps
-- [response label + claim that is weakly supported or over-extended]
-
-## Missing Evidence
-- [important data angle the group did not use]
-
-Rules:
-1. Do not rank authors.
-2. Focus on evidence traceability, not writing quality.
-3. Quote labels explicitly: Response A/B/C.
-4. Keep it under 250 words.
-"""
-
-    STAGE2C_PROMPT: str = """You are the chairman synthesizing the council's audit phase.
-
-ANALYTICAL FRAME
-{analytical_frame}
-
-STAGE 2A CONTRARIAN PASS
-{stage2a_contrarian_pass}
-
-STAGE 2B SPECIALIST EVIDENCE AUDITS
-{stage2b_evidence_audits}
-
-Produce one audit synthesis using exactly this structure:
-## High Confidence
-- [claims that survived audit]
-
-## Evidence Risks
-- [claims that remain weak or overstated]
-
-## What The Final Report Should Prioritize
-- [highest-value themes to lead with]
-
-Keep it under 300 words.
-"""
-
-    STAGE3_PROMPT: str = """You are the chairman of an Indian fintech product-intelligence council.
-
-ANALYTICAL FRAME
-{analytical_frame}
-
-STAGE 1 SPECIALIST OUTPUTS
-{stage1_outputs}
-
-STAGE 2 AUDIT SYNTHESIS
-{stage2_gap_analysis}
-
-Produce the final report using exactly this structure:
-
-## Key Findings
-List 3-5 findings. For each use:
-**Finding [N]: [Title]**
-- **Insight:** [specific claim with numbers where available]
-- **Evidence base:** [which specialist views and audit signals support it]
-- **Confidence:** HIGH | MEDIUM | LOW
-- **Why hypothesis:** [brief mechanism]
-
-## App-Specific Signals
-One paragraph each for Groww, Jupiter, CRED, PhonePe, and Paytm.
-
-## Cross-App Pattern
-One category-level pattern grounded in at least two apps.
-
-Rules:
-1. Lead with the findings that most change PM priorities.
-2. Exclude claims the audit marked as weak unless clearly caveated.
-3. Keep every claim evidence-grounded and PM-useful.
-4. Total length: 500-700 words.
-"""
-
-    ROLE_MANDATES: dict[str, str] = {
-        "anthropic/claude-opus-4.7": (
-            "ROLE MANDATE — FIRST PRINCIPLES ANALYST\n\n"
-            "Reason from structural causes, not complaint summaries. Ask what the data reveals about trust, regulation, incentives, and operating-model tradeoffs in Indian fintech."
-        ),
-        "deepseek/deepseek-r1": (
-            "ROLE MANDATE — OUTSIDER ANALYST\n\n"
-            "Use only what the data literally shows. Do not rely on domain assumptions. Surface what looks strange, inconsistent, or counterintuitive from the evidence alone."
-        ),
-        "qwen/qwen3.6-plus": (
-            "ROLE MANDATE — EXPANSIONIST ANALYST\n\n"
-            "Look for upside, unmet jobs-to-be-done, and opportunity signals hidden inside complaints, trust gaps, and cross-app differences."
-        ),
-    }
-
-    ROLE_NAMES: dict[str, str] = {
-        "anthropic/claude-opus-4.7": "First Principles",
-        "deepseek/deepseek-r1": "Outsider",
-        "qwen/qwen3.6-plus": "Expansionist",
-        "google/gemini-3.1-pro-preview": "Chairman (Contrarian)",
-    }
+    STAGE1_PROMPT: str = CouncilPrompts.STAGE1_PROMPT
+    STAGE2A_PROMPT: str = CouncilPrompts.STAGE2A_PROMPT
+    STAGE2B_PROMPT: str = CouncilPrompts.STAGE2B_PROMPT
+    STAGE2C_PROMPT: str = CouncilPrompts.STAGE2C_PROMPT
+    STAGE3_PROMPT: str = CouncilPrompts.STAGE3_PROMPT
+    ROLE_MANDATES: dict[str, str] = CouncilPrompts.ROLE_MANDATES
+    ROLE_NAMES: dict[str, str] = CouncilPrompts.ROLE_NAMES
 
     def __init__(
         self,

@@ -227,7 +227,7 @@ def main() -> None:
                     elif batch_result.status == "auth_error":
                         db.save_phase_state("classification", "in_progress")
                         logger.critical(
-                            "Gemini authentication failed — check GEMINI_API_KEY in .env. "
+                            "LLM authentication failed — check OPENROUTER_API_KEY in .env. "
                             "Classification has NOT been marked complete."
                         )
                         sys.exit(1)
@@ -371,8 +371,8 @@ def _format_recovery_hint(exc: BaseException) -> str:
         )
     if isinstance(exc, ValueError) and "Missing required environment" in str(exc):
         return (
-            "Fix: copy .env.example to .env and fill in GEMINI_API_KEY and "
-            "OPENROUTER_API_KEY, then re-run."
+            "Fix: copy .env.example to .env and fill in OPENROUTER_API_KEY, "
+            "then re-run."
         )
     if isinstance(exc, RuntimeError) and "Stage 1 aborted" in str(exc):
         return (

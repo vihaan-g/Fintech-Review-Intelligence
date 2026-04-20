@@ -22,7 +22,7 @@ The pipeline does five things in order:
    findings summary.
 3. **Classify** — batch-classify every review into product areas
    (onboarding, UX, transactions, support, performance, trust) using
-   Gemini 2.5 Flash Lite (Google AI Studio, paid — ~₹32/run; Tier 1: 4,000 RPM).
+   Gemini 2.5 Flash Lite via OpenRouter.
 4. **Council** — run a 4-stage LLM deliberation:
    - Stage 0: chairman frames the analytical question (≤100 words).
    - Stage 1: four models generate insights independently, in parallel,
@@ -38,7 +38,7 @@ The pipeline does five things in order:
 ## How to Run
 
 ```bash
-cp .env.example .env            # add GEMINI_API_KEY and OPENROUTER_API_KEY
+cp .env.example .env            # add OPENROUTER_API_KEY
 pip install -r requirements.txt
 python src/main.py              # full pipeline
 python src/main.py --dry-run    # wiring check, no API calls
@@ -70,8 +70,8 @@ outputs/linkedin_snippet.txt
 ## Tech Stack
 
 - Python 3.11, SQLite (WAL mode), `google-play-scraper`
-- Classification: Gemini 2.5 Flash Lite (Google AI Studio, paid — ~₹32/run)
-- Council chairman: Gemini 3.1 Pro Preview — Contrarian Chairman (Google AI Studio, paid — ~₹22/run)
+- Classification: Gemini 2.5 Flash Lite via OpenRouter
+- Council chairman: Gemini 3.1 Pro Preview — Contrarian Chairman via OpenRouter
 - Council members: Claude Opus 4.7 (First Principles), DeepSeek R1 (Outsider),
   Qwen 3.6 Plus (Expansionist) — all via OpenRouter (paid)
 - Estimated cost per council run: ~$0.059 (Opus 4.7: ~$0.050, DeepSeek R1: ~$0.005, Qwen 3.6 Plus: ~$0.004)

@@ -13,17 +13,24 @@ class Config:
 
     def __init__(
         self,
-        gemini_api_key: str,
         openrouter_api_key: str,
     ) -> None:
         """Store validated API keys.
 
         Args:
-            gemini_api_key: Google AI Studio API key for Gemini.
-            openrouter_api_key: OpenRouter API key for council members.
+            openrouter_api_key: OpenRouter API key for all LLM requests.
         """
-        self.gemini_api_key = gemini_api_key
         self.openrouter_api_key = openrouter_api_key
+
+    @property
+    def gemini_api_key(self) -> str:
+        """Compatibility alias during the OpenRouter-only migration.
+
+        Existing classification/council code still reads ``config.gemini_api_key``.
+        Returning the OpenRouter key keeps Phase B non-breaking while later phases
+        migrate those call sites to the canonical ``openrouter_api_key`` field.
+        """
+        return self.openrouter_api_key
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -39,7 +46,6 @@ class Config:
             ValueError: If one or more required environment variables are absent.
         """
         key_map: dict[str, str] = {
-            "GEMINI_API_KEY": "",
             "OPENROUTER_API_KEY": "",
         }
 
@@ -59,7 +65,6 @@ class Config:
             )
 
         return cls(
-            gemini_api_key=values["GEMINI_API_KEY"],
             openrouter_api_key=values["OPENROUTER_API_KEY"],
         )
 

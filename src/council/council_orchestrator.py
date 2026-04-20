@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 
 _LABELS = ["Response A", "Response B", "Response C", "Response D"]
 
+_OPENROUTER_MODELS_ENDPOINT = "https://openrouter.ai/api/v1/models"
+_PREFLIGHT_TIMEOUT = 15.0
+
 
 @dataclass
 class CouncilResult:
@@ -354,6 +357,11 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
             )
 
         # -------------------------------------------------------------------
+        # Preflight — verify OpenRouter members are listed and free
+        # -------------------------------------------------------------------
+        await self._preflight_openrouter_models()
+
+        # -------------------------------------------------------------------
         # Stage 1 — parallel independent insight generation
         # -------------------------------------------------------------------
         t1_start = time.monotonic()
@@ -531,6 +539,72 @@ Quality bar: A PM at CRED or PhonePe should find this report useful without havi
                 )
             return frame
         return ""
+
+    async def _preflight_openrouter_models(self) -> None:
+        """Verify all OpenRouter council members are listed and free before Stage 1.
+
+        Fetches GET /api/v1/models and checks that each OpenRouter member's
+        model_id appears in the response with pricing.prompt == "0".
+        Raises RuntimeError naming all missing or non-free models.
+        Network / auth errors also raise RuntimeError so Stage 1 never fires
+        against an unknown API state.
+        """
+        openrouter_members = [m for m in self.members if m.provider == "openrouter"]
+        if not openrouter_members:
+            return
+
+        async with httpx.AsyncClient(timeout=_PREFLIGHT_TIMEOUT) as client:
+            try:
+                resp = await client.get(
+                    _OPENROUTER_MODELS_ENDPOINT,
+                    headers={
+                        "Authorization": f"Bearer {self.config.openrouter_api_key}"
+                    },
+                )
+                resp.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                raise RuntimeError(
+                    f"OpenRouter models preflight failed — HTTP {exc.response.status_code}. "
+                    "Cannot verify model availability before Stage 1. "
+                    "Check OPENROUTER_API_KEY."
+                ) from exc
+            except httpx.TransportError as exc:
+                raise RuntimeError(
+                    f"OpenRouter models preflight failed — {type(exc).__name__}: {exc}. "
+                    "Check network connectivity."
+                ) from exc
+            data = resp.json().get("data", [])
+
+        available: dict[str, bool] = {
+            m["id"]: str(m.get("pricing", {}).get("prompt", "")) == "0"
+            for m in data
+            if isinstance(m, dict) and m.get("id")
+        }
+
+        missing: list[str] = []
+        not_free: list[str] = []
+        for member in openrouter_members:
+            if member.model_id not in available:
+                missing.append(f"{member.name} ({member.model_id})")
+            elif not available[member.model_id]:
+                not_free.append(f"{member.name} ({member.model_id})")
+
+        problems: list[str] = []
+        if missing:
+            problems.append(f"not listed on OpenRouter: {', '.join(missing)}")
+        if not_free:
+            problems.append(
+                f"no longer free (pricing.prompt != '0'): {', '.join(not_free)}"
+            )
+        if problems:
+            raise RuntimeError(
+                "OpenRouter preflight failed — " + "; ".join(problems) + ". "
+                "Update model IDs in CouncilOrchestrator.default() or check your OpenRouter account."
+            )
+        logger.info(
+            "OpenRouter preflight passed — %d member model(s) confirmed free",
+            len(openrouter_members),
+        )
 
     def _member_label(self, member: CouncilMember) -> str:
         """Return display label: 'Name [Role]' if ROLE_NAMES entry exists, else 'Name'."""

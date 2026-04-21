@@ -66,8 +66,27 @@ Run targeted tests after relevant edits and run the broader suite before conclud
 Common command:
 
 ```bash
-python -m pytest tests/ -q
+python3 -m pytest tests/ -q
 ```
+
+## Council Architecture
+
+The council is OpenRouter-only and follows this staged flow:
+
+1. Stage 0: chairman analytical frame
+2. Stage 1: specialist insights only
+3. Stage 2a: chairman contrarian pass
+4. Stage 2b: anonymized specialist evidence audits
+5. Stage 2c: chairman audit synthesis
+6. Stage 3: chairman final report
+
+Keep the current four-model roster unchanged:
+1. Gemini 3.1 Pro Preview — Contrarian Chairman
+2. Claude Opus 4.7 — First Principles
+3. DeepSeek R1 — Outsider
+4. Qwen 3.6 Plus — Expansionist
+
+The chairman must not participate in Stage 1.
 
 ## AI Workflow Expectations
 

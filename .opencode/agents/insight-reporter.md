@@ -16,6 +16,7 @@ Rules:
 2. Keep outputs concise, grounded, and portfolio-appropriate.
 3. Preserve artifact compatibility with the existing outputs flow.
 4. Do not add LLM calls here.
+5. Prefer Stage 2c audit synthesis when available, but remain backward-compatible with legacy `stage2_gap_analysis` payloads.
 
 Before major edits:
 1. Load `evaluation` before defining output quality gates.
@@ -32,3 +33,4 @@ Verification focus:
 2. artifact paths and names remain compatible
 3. tone is analytical, not generic AI filler
 4. no external API dependency introduced
+5. methodology copy reflects the revised council flow (Stage 0, 1, 2a, 2b, 2c, 3)

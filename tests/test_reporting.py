@@ -3,6 +3,14 @@ import os
 import pytest
 
 
+def _realistic_synthesis() -> str:
+    return (
+        "Finding 1: Jupiter's support volume does not repair trust once account access fails. "
+        "Finding 2: PhonePe and Groww absorb UX complaints because core transaction rails stay reliable. "
+        "Finding 3: CRED's pain is a rewards-contract issue, not a single technical defect."
+    )
+
+
 def test_insight_reporter_raises_on_empty_synthesis() -> None:
     """InsightReporter raises ValueError if stage3_synthesis is too short."""
     from src.agents.insight_reporter import InsightReporter
@@ -10,6 +18,36 @@ def test_insight_reporter_raises_on_empty_synthesis() -> None:
     with pytest.raises(ValueError, match="stage3_synthesis"):
         InsightReporter.from_dicts(
             council_dict={"stage3_synthesis": "too short"},
+            summary_dict={
+                "structured_text": "some text",
+                "cross_app_stats": {},
+                "high_signal_reviews": [],
+            },
+        )
+
+
+def test_insight_reporter_rejects_placeholder_synthesis() -> None:
+    """InsightReporter should reject dry-run and repeated-character placeholders."""
+    from src.agents.insight_reporter import InsightReporter
+
+    with pytest.raises(ValueError, match="placeholder"):
+        InsightReporter.from_dicts(
+            council_dict={"stage3_synthesis": "X" * 200},
+            summary_dict={
+                "structured_text": "some text",
+                "cross_app_stats": {},
+                "high_signal_reviews": [],
+            },
+        )
+
+    with pytest.raises(ValueError, match="placeholder"):
+        InsightReporter.from_dicts(
+            council_dict={
+                "stage3_synthesis": (
+                    "DRY RUN MOCK: Council synthesis placeholder. "
+                    "This is a dry-run output with no real LLM calls."
+                )
+            },
             summary_dict={
                 "structured_text": "some text",
                 "cross_app_stats": {},
@@ -26,7 +64,7 @@ def test_insight_reporter_generates_all_files(tmp_path, monkeypatch) -> None:
     os.makedirs("outputs", exist_ok=True)
     reporter = InsightReporter.from_dicts(
         council_dict={
-            "stage3_synthesis": "A" * 200,
+            "stage3_synthesis": _realistic_synthesis(),
             "stage2_gap_analysis": "some gap analysis",
             "generated_at": "2026-04-16T00:00:00",
         },
@@ -63,7 +101,7 @@ def test_insight_reporter_uses_live_council_roster_in_outputs(
 
     reporter = InsightReporter.from_dicts(
         council_dict={
-            "stage3_synthesis": "A" * 200,
+            "stage3_synthesis": _realistic_synthesis(),
             "stage2_gap_analysis": "some gap analysis",
             "generated_at": "2026-04-20T00:00:00",
         },
@@ -111,7 +149,7 @@ def test_insight_reporter_prefers_stage2c_audit_synthesis(tmp_path, monkeypatch)
     os.makedirs("outputs", exist_ok=True)
     reporter = InsightReporter.from_dicts(
         council_dict={
-            "stage3_synthesis": "A" * 200,
+            "stage3_synthesis": _realistic_synthesis(),
             "stage2_gap_analysis": "legacy gap analysis",
             "stage2a_contrarian_pass": "contrarian notes",
             "stage2c_audit_synthesis": "new audit synthesis",
@@ -166,7 +204,7 @@ def test_bug8_report_does_not_claim_full_history(tmp_path, monkeypatch) -> None:
     os.makedirs("outputs", exist_ok=True)
     reporter = InsightReporter.from_dicts(
         council_dict={
-            "stage3_synthesis": "A" * 200,
+            "stage3_synthesis": _realistic_synthesis(),
             "stage2_gap_analysis": "gap analysis",
             "generated_at": "2026-04-20T00:00:00",
         },
@@ -199,7 +237,7 @@ def test_reporting_copy_mentions_new_council_flow(tmp_path, monkeypatch) -> None
     os.makedirs("outputs", exist_ok=True)
     reporter = InsightReporter.from_dicts(
         council_dict={
-            "stage3_synthesis": "A" * 200,
+            "stage3_synthesis": _realistic_synthesis(),
             "stage2_gap_analysis": "audit",
             "generated_at": "2026-04-20T00:00:00",
         },

@@ -309,45 +309,49 @@ def main() -> None:
         # Phase 5: Report
         # ----------------------------------------------------------------
         if args.phase in (None, "report"):
-            logger.info("Phase 5: Report Generation")
-            council_path = "outputs/council_result.json"
-            summary_path = "outputs/findings_summary.json"
+            if args.dry_run:
+                logger.info("DRY RUN — skipping Phase 5 (report generation)")
+            else:
+                logger.info("Phase 5: Report Generation")
+                council_path = "outputs/council_result.json"
+                summary_path = "outputs/findings_summary.json"
 
-            if not os.path.exists(council_path):
-                raise FileNotFoundError(
-                    "council_result.json not found. Run Phase 4 (council) first."
-                )
-            if not os.path.exists(summary_path):
-                raise FileNotFoundError(
-                    "findings_summary.json not found. Run Phase 2 (analysis) first."
-                )
+                if not os.path.exists(council_path):
+                    raise FileNotFoundError(
+                        "council_result.json not found. Run Phase 4 (council) first."
+                    )
+                if not os.path.exists(summary_path):
+                    raise FileNotFoundError(
+                        "findings_summary.json not found. Run Phase 2 (analysis) first."
+                    )
 
-            try:
-                with open(council_path, encoding="utf-8") as f:
-                    council_data = json.load(f)
-            except (OSError, json.JSONDecodeError) as exc:
-                raise RuntimeError(
-                    f"Could not read {council_path}: {exc}. "
-                    "The file may be corrupted — re-run Phase 4 (council)."
-                ) from exc
-            try:
-                with open(summary_path, encoding="utf-8") as f:
-                    summary_data = json.load(f)
-            except (OSError, json.JSONDecodeError) as exc:
-                raise RuntimeError(
-                    f"Could not read {summary_path}: {exc}. "
-                    "The file may be corrupted — re-run Phase 2 (analysis)."
-                ) from exc
+                try:
+                    with open(council_path, encoding="utf-8") as f:
+                        council_data = json.load(f)
+                except (OSError, json.JSONDecodeError) as exc:
+                    raise RuntimeError(
+                        f"Could not read {council_path}: {exc}. "
+                        "The file may be corrupted — re-run Phase 4 (council)."
+                    ) from exc
+                try:
+                    with open(summary_path, encoding="utf-8") as f:
+                        summary_data = json.load(f)
+                except (OSError, json.JSONDecodeError) as exc:
+                    raise RuntimeError(
+                        f"Could not read {summary_path}: {exc}. "
+                        "The file may be corrupted — re-run Phase 2 (analysis)."
+                    ) from exc
 
-            from src.agents.insight_reporter import InsightReporter
-            reporter = InsightReporter.from_dicts(council_data, summary_data)
-            report_result = reporter.generate_all()
+                from src.agents.insight_reporter import InsightReporter
 
-            logger.info("Report complete:")
-            logger.info("  findings_report.md → %s", report_result.report_path)
-            logger.info("  linkedin_snippet.txt → %s", report_result.linkedin_path)
-            logger.info("  README.md → %s", report_result.readme_path)
-            logger.info("  Word count: %d", report_result.word_count)
+                reporter = InsightReporter.from_dicts(council_data, summary_data)
+                report_result = reporter.generate_all()
+
+                logger.info("Report complete:")
+                logger.info("  findings_report.md → %s", report_result.report_path)
+                logger.info("  linkedin_snippet.txt → %s", report_result.linkedin_path)
+                logger.info("  README.md → %s", report_result.readme_path)
+                logger.info("  Word count: %d", report_result.word_count)
 
     logger.info("Pipeline complete")
 

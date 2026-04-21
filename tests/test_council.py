@@ -153,8 +153,13 @@ def test_stage1_response_usable_guard_rejects_truncated_text() -> None:
     assert CouncilOrchestrator._is_stage1_response_usable(_stage1_text("usable"))
 
 
-def test_run_excludes_chairman_from_stage1_and_runs_stage2b_specialists(llm_env) -> None:
+def test_run_excludes_chairman_from_stage1_and_runs_stage2b_specialists(
+    llm_env,
+    tmp_path,
+    monkeypatch,
+) -> None:
     """The revised flow should call 3 specialists in Stage 1 and 3 in Stage 2b."""
+    monkeypatch.chdir(tmp_path)
     with DatabaseManager(db_path=":memory:") as db:
         db.create_schema()
         orchestrator = CouncilOrchestrator.default(Config.from_env(), db)
@@ -201,8 +206,13 @@ def test_run_excludes_chairman_from_stage1_and_runs_stage2b_specialists(llm_env)
     assert len(chairman_calls) == 4
 
 
-def test_partial_stage2b_resume_uses_cached_audits(llm_env) -> None:
+def test_partial_stage2b_resume_uses_cached_audits(
+    llm_env,
+    tmp_path,
+    monkeypatch,
+) -> None:
     """Cached Stage 2b audits should be reused and only missing ones rerun."""
+    monkeypatch.chdir(tmp_path)
     with DatabaseManager(db_path=":memory:") as db:
         db.create_schema()
         orchestrator = CouncilOrchestrator.default(Config.from_env(), db)

@@ -36,6 +36,7 @@ class InsightReporter:
     """
 
     OUTPUTS_DIR = "outputs"
+    _DRY_RUN_PREFIX = "DRY RUN MOCK:"
 
     def __init__(
         self,
@@ -48,13 +49,27 @@ class InsightReporter:
         or under 100 characters — prevents writing an empty report.
         """
         synthesis = getattr(council_result, "stage3_synthesis", "") or ""
-        if len(synthesis.strip()) < 100:
+        if not self._is_usable_synthesis(synthesis):
             raise ValueError(
-                f"stage3_synthesis is too short ({len(synthesis.strip())} chars). "
-                "Minimum 100 characters required. Run the council first."
+                "stage3_synthesis is missing or contains placeholder content. "
+                "Run the council phase again with real model output before generating the report."
             )
         self._council = council_result
         self._summary = findings_summary
+
+    @classmethod
+    def _is_usable_synthesis(cls, synthesis: str) -> bool:
+        """Return whether the final synthesis looks like real council output."""
+        stripped = synthesis.strip()
+        if len(stripped) < 100:
+            return False
+        if stripped.startswith(cls._DRY_RUN_PREFIX):
+            return False
+        if len(set(stripped)) == 1:
+            return False
+        if " " not in stripped:
+            return False
+        return True
 
     @classmethod
     def from_dicts(

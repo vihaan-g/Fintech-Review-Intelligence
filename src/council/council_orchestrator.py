@@ -22,6 +22,12 @@ logger = logging.getLogger(__name__)
 _LABELS = ["Response A", "Response B", "Response C"]
 _OPENROUTER_MODELS_ENDPOINT = "https://openrouter.ai/api/v1/models"
 _PREFLIGHT_TIMEOUT = 15.0
+_STAGE0_MAX_TOKENS = 4096
+_STAGE1_MAX_TOKENS = 7000
+_STAGE2A_MAX_TOKENS = 4096
+_STAGE2B_MAX_TOKENS = 4096
+_STAGE2C_MAX_TOKENS = 4096
+_STAGE3_MAX_TOKENS = 4096
 
 
 @dataclass
@@ -144,12 +150,13 @@ class CouncilOrchestrator:
         logger.info("Council Stage 2a: chairman contrarian pass")
         stage2a = self._load_cached_text("council_stage2a_contrarian", "text")
         if not stage2a:
-            stage2a_response = await self.chairman.generate(
+            stage2a_response = await self.chairman.generate_with_options(
                 self.STAGE2A_PROMPT.format(
                     analytical_frame=analytical_frame,
                     findings_summary=findings_summary,
                     labeled_responses=labeled_responses,
-                )
+                ),
+                max_tokens=_STAGE2A_MAX_TOKENS,
             )
             stage2a = stage2a_response.clean_response.strip()
             if stage2a:
@@ -169,12 +176,13 @@ class CouncilOrchestrator:
         logger.info("Council Stage 2c: chairman audit synthesis")
         stage2c = self._load_cached_text("council_stage2c_audit_synthesis", "text")
         if not stage2c:
-            stage2c_response = await self.chairman.generate(
+            stage2c_response = await self.chairman.generate_with_options(
                 self.STAGE2C_PROMPT.format(
                     analytical_frame=analytical_frame,
                     stage2a_contrarian_pass=stage2a,
                     stage2b_evidence_audits=self._format_member_responses(stage2b_evidence_audits),
-                )
+                ),
+                max_tokens=_STAGE2C_MAX_TOKENS,
             )
             stage2c = stage2c_response.clean_response.strip()
             if not stage2c:
@@ -188,12 +196,13 @@ class CouncilOrchestrator:
         logger.info("Council Stage 3: final chairman report")
         stage3_synthesis = self._load_cached_text("council_stage3_final", "text")
         if not stage3_synthesis:
-            stage3_response = await self.chairman.generate(
+            stage3_response = await self.chairman.generate_with_options(
                 self.STAGE3_PROMPT.format(
                     analytical_frame=analytical_frame,
                     stage1_outputs=self._format_member_responses(stage1_responses),
                     stage2_gap_analysis=stage2c,
-                )
+                ),
+                max_tokens=_STAGE3_MAX_TOKENS,
             )
             stage3_synthesis = stage3_response.clean_response.strip()
             if len(stage3_synthesis) < 100:
@@ -249,7 +258,10 @@ class CouncilOrchestrator:
             )
             gathered = await asyncio.gather(
                 *[
-                    member.generate(self._build_stage1_prompt_for_member(member, findings_summary, analytical_frame))
+                    member.generate_with_options(
+                        self._build_stage1_prompt_for_member(member, findings_summary, analytical_frame),
+                        max_tokens=_STAGE1_MAX_TOKENS,
+                    )
                     for member in members_to_run
                 ],
                 return_exceptions=True,
@@ -277,6 +289,20 @@ class CouncilOrchestrator:
                         duration_ms=0,
                     )
                 else:
+                    if not self._is_stage1_response_usable(item.clean_response):
+                        logger.warning(
+                            "Stage 1 member %s returned an incomplete response; it will not be checkpointed",
+                            self._member_label(member),
+                        )
+                        responses_by_id[member.model_id] = MemberResponse(
+                            member_name=member.name,
+                            model_id=member.model_id,
+                            raw_response=item.raw_response,
+                            clean_response="",
+                            timestamp=item.timestamp,
+                            duration_ms=item.duration_ms,
+                        )
+                        continue
                     responses_by_id[member.model_id] = item
                     self._checkpoint_member_response(self._stage1_cache_key(member.model_id), item)
                     logger.info("Council Stage 1 checkpoint saved — %s", self._member_label(member))
@@ -315,12 +341,13 @@ class CouncilOrchestrator:
             )
             gathered = await asyncio.gather(
                 *[
-                    member.generate(
+                    member.generate_with_options(
                         self.STAGE2B_PROMPT.format(
                             analytical_frame=analytical_frame,
                             findings_summary=findings_summary,
                             labeled_responses=labeled_responses,
-                        )
+                        ),
+                        max_tokens=_STAGE2B_MAX_TOKENS,
                     )
                     for member in members_to_run
                 ],
@@ -388,8 +415,27 @@ class CouncilOrchestrator:
             f"FINDINGS SUMMARY\n{findings_text}\n\n"
             "Analytical frame:"
         )
-        response = await self.chairman.generate(frame_prompt)
-        return response.clean_response.strip()
+        response = await self.chairman.generate_with_options(
+            frame_prompt,
+            max_tokens=_STAGE0_MAX_TOKENS,
+        )
+        frame = response.clean_response.strip()
+        if frame and not self._is_stage0_frame_usable(frame):
+            logger.warning("Stage 0 returned unusable frame: %r", frame[:300])
+        return frame if self._is_stage0_frame_usable(frame) else ""
+
+    @staticmethod
+    def _is_stage0_frame_usable(text: str) -> bool:
+        """Return whether a Stage 0 frame is substantive enough to use."""
+        stripped = text.strip()
+        if len(stripped) < 40 or len(stripped.split()) > 140:
+            return False
+        lowered = stripped.lower()
+        if lowered in {"frame", "analytical frame", "question"}:
+            return False
+        if stripped.startswith("##") or stripped.startswith("-"):
+            return False
+        return True
 
     def _build_stage1_prompt_for_member(
         self,
@@ -478,6 +524,9 @@ class CouncilOrchestrator:
         clean = str(metadata.get("clean_response", ""))
         if not clean.strip():
             return None
+        if phase.startswith("council_stage1_") and not self._is_stage1_response_usable(clean):
+            logger.warning("Ignoring cached incomplete Stage 1 response for %s", member.model_id)
+            return None
         return MemberResponse(
             member_name=str(metadata.get("member_name", member.name)),
             model_id=str(metadata.get("model_id", member.model_id)),
@@ -486,6 +535,12 @@ class CouncilOrchestrator:
             timestamp=str(metadata.get("timestamp", datetime.now(timezone.utc).isoformat())),
             duration_ms=int(metadata.get("duration_ms", 0)),
         )
+
+    @staticmethod
+    def _is_stage1_response_usable(text: str) -> bool:
+        """Return whether a Stage 1 specialist output is substantive enough to use."""
+        stripped = text.strip()
+        return len(stripped) >= 300 and stripped.count("**Insight") >= 2
 
     def _checkpoint_member_response(self, phase: str, response: MemberResponse) -> None:
         """Persist a successful member response checkpoint."""

@@ -57,13 +57,22 @@ class CouncilMember:
 
     async def generate(self, prompt: str) -> MemberResponse:
         """Send a prompt to this member and return a cleaned response."""
+        return await self.generate_with_options(prompt)
+
+    async def generate_with_options(
+        self,
+        prompt: str,
+        *,
+        max_tokens: int = 4096,
+    ) -> MemberResponse:
+        """Send a prompt to this member with stage-specific generation options."""
         start = time.monotonic()
         timestamp = datetime.now(timezone.utc).isoformat()
         raw = ""
         clean = ""
         try:
             async with httpx.AsyncClient(timeout=_TIMEOUT_OPENROUTER) as client:
-                raw = await self._call_openrouter(prompt, client)
+                raw = await self._call_openrouter(prompt, client, max_tokens=max_tokens)
             clean = self._strip_think_tags(raw)
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code
@@ -169,7 +178,13 @@ class CouncilMember:
 
         raise last_exc
 
-    async def _call_openrouter(self, prompt: str, client: httpx.AsyncClient) -> str:
+    async def _call_openrouter(
+        self,
+        prompt: str,
+        client: httpx.AsyncClient,
+        *,
+        max_tokens: int,
+    ) -> str:
         """POST to OpenRouter via OpenAI-compatible chat completions."""
         headers = {
             "Authorization": f"Bearer {self._api_key}",
@@ -179,7 +194,7 @@ class CouncilMember:
         body = {
             "model": self.model_id,
             "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 4096,
+            "max_tokens": max_tokens,
         }
         response = await self._post_with_retries(client, body, headers)
         data = response.json()

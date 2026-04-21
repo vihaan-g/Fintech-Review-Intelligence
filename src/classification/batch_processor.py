@@ -85,14 +85,25 @@ class BatchProcessor:
 
         if unclassified_total == 0:
             self._logger.info("No unclassified reviews found. Nothing to do.")
-            self._db.save_phase_state("classification", "complete")
-            return BatchResult(
-                total_classified=0,
+            self._db.save_phase_state(
+                "classification",
+                "complete",
+                {
+                    "total_classified": already_classified,
+                    "parse_failures": 0,
+                    "batches_processed": 0,
+                    "status": "complete",
+                },
+            )
+            result = BatchResult(
+                total_classified=already_classified,
                 parse_failures=0,
                 batches_processed=0,
                 duration_seconds=0.0,
                 status="complete",
             )
+            self._save_result(result)
+            return result
 
         n_batches = math.ceil(unclassified_total / self.BATCH_SIZE)
         est_minutes = (n_batches * (self.SLEEP_BETWEEN_BATCHES + self._API_LATENCY_S)) / 60.0
@@ -229,8 +240,9 @@ class BatchProcessor:
                 status = "complete"
                 message = ""
 
+        final_classified_count = self._db.get_classified_count()
         result_summary = BatchResult(
-            total_classified=total_classified,
+            total_classified=final_classified_count,
             parse_failures=parse_failures,
             batches_processed=batches_processed,
             duration_seconds=duration,
@@ -245,7 +257,7 @@ class BatchProcessor:
             "classification",
             final_status,
             {
-                "total_classified": total_classified,
+                "total_classified": final_classified_count,
                 "parse_failures": parse_failures,
                 "batches_processed": batches_processed,
                 "status": status,

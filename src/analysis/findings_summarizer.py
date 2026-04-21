@@ -174,8 +174,21 @@ class FindingsSummarizer:
         existing_text = summary.get("structured_text", "")
         # Strip any previously appended classification section so repeated calls
         # (across partial/resumed runs) replace rather than accumulate.
-        _MARKER = "\n\n## Classification Signals"
-        base_text = existing_text.split(_MARKER)[0]
+        markers = [
+            "\n\n## Complaint Category Over-Indexing",
+            "\n\n## Classification Signals",
+            "\n\n## Top Classified Pain Points",
+        ]
+        marker_positions = [
+            existing_text.find(marker)
+            for marker in markers
+            if existing_text.find(marker) != -1
+        ]
+        base_text = (
+            existing_text[: min(marker_positions)]
+            if marker_positions
+            else existing_text
+        )
         summary["structured_text"] = base_text + "\n\n" + classification_section
 
         try:

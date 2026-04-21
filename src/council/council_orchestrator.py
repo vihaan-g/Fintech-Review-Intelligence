@@ -111,18 +111,26 @@ class CouncilOrchestrator:
         pipeline_start = time.monotonic()
         generated_at = datetime.now(timezone.utc).isoformat()
 
+        logger.info("Council Stage 0: analytical frame")
         analytical_frame = self._load_cached_text("council_stage0_frame", "frame")
         if not analytical_frame:
             analytical_frame = await self._stage0_frame_question(findings_summary)
             if not analytical_frame:
                 raise RuntimeError("Stage 0 failed: chairman returned empty analytical frame. Re-run to retry.")
             self._save_text_checkpoint("council_stage0_frame", analytical_frame, "frame")
+            logger.info("Council Stage 0 complete — analytical frame generated")
+        else:
+            logger.info("Council Stage 0 cache hit — reusing analytical frame")
 
+        logger.info("Council preflight: verifying OpenRouter model availability")
         await self._preflight_openrouter_models()
+        logger.info("Council preflight complete")
 
+        logger.info("Council Stage 1: specialist insights")
         stage1_responses = await self._run_stage1(findings_summary, analytical_frame)
         if not stage1_responses:
             raise RuntimeError("Stage 1 failed: no specialist outputs available.")
+        logger.info("Council Stage 1 complete — %d specialist output(s)", len(stage1_responses))
 
         shuffled_stage1 = list(stage1_responses.values())
         rng = random.Random(self._seed)
@@ -133,6 +141,7 @@ class CouncilOrchestrator:
         }
         labeled_responses = self._build_labeled_responses(shuffled_stage1)
 
+        logger.info("Council Stage 2a: chairman contrarian pass")
         stage2a = self._load_cached_text("council_stage2a_contrarian", "text")
         if not stage2a:
             stage2a_response = await self.chairman.generate(
@@ -147,11 +156,17 @@ class CouncilOrchestrator:
                 self._save_text_checkpoint("council_stage2a_contrarian", stage2a, "text")
             else:
                 stage2a = "[Stage 2a contrarian pass unavailable.]"
+            logger.info("Council Stage 2a complete — contrarian pass generated")
+        else:
+            logger.info("Council Stage 2a cache hit — reusing contrarian pass")
 
+        logger.info("Council Stage 2b: specialist evidence audits")
         stage2b_evidence_audits = await self._run_stage2b(findings_summary, analytical_frame, labeled_responses)
         if not stage2b_evidence_audits:
             raise RuntimeError("Stage 2b failed: no specialist evidence audits available.")
+        logger.info("Council Stage 2b complete — %d audit(s)", len(stage2b_evidence_audits))
 
+        logger.info("Council Stage 2c: chairman audit synthesis")
         stage2c = self._load_cached_text("council_stage2c_audit_synthesis", "text")
         if not stage2c:
             stage2c_response = await self.chairman.generate(
@@ -166,7 +181,11 @@ class CouncilOrchestrator:
                 stage2c = "[Stage 2 audit synthesis unavailable.]"
             self._save_text_checkpoint("council_stage2c_audit_synthesis", stage2c, "text")
             self._save_text_checkpoint("council_stage2_audit", stage2c, "text")
+            logger.info("Council Stage 2c complete — audit synthesis generated")
+        else:
+            logger.info("Council Stage 2c cache hit — reusing audit synthesis")
 
+        logger.info("Council Stage 3: final chairman report")
         stage3_synthesis = self._load_cached_text("council_stage3_final", "text")
         if not stage3_synthesis:
             stage3_response = await self.chairman.generate(
@@ -183,6 +202,9 @@ class CouncilOrchestrator:
                     "The chairman model may have returned an empty or blocked response."
                 )
             self._save_text_checkpoint("council_stage3_final", stage3_synthesis, "text")
+            logger.info("Council Stage 3 complete — final report generated")
+        else:
+            logger.info("Council Stage 3 cache hit — reusing final report")
 
         total_duration_ms = int((time.monotonic() - pipeline_start) * 1000)
         result = CouncilResult(
@@ -216,10 +238,15 @@ class CouncilOrchestrator:
             cached = self._load_cached_member_response(self._stage1_cache_key(member.model_id), member)
             if cached is not None:
                 responses_by_id[member.model_id] = cached
+                logger.info("Council Stage 1 cache hit — %s", self._member_label(member))
             else:
                 members_to_run.append(member)
 
         if members_to_run:
+            logger.info(
+                "Council Stage 1 running members: %s",
+                ", ".join(self._member_label(member) for member in members_to_run),
+            )
             gathered = await asyncio.gather(
                 *[
                     member.generate(self._build_stage1_prompt_for_member(member, findings_summary, analytical_frame))
@@ -252,6 +279,7 @@ class CouncilOrchestrator:
                 else:
                     responses_by_id[member.model_id] = item
                     self._checkpoint_member_response(self._stage1_cache_key(member.model_id), item)
+                    logger.info("Council Stage 1 checkpoint saved — %s", self._member_label(member))
 
         stage1_responses = {
             self._member_label(member): responses_by_id[member.model_id]
@@ -276,10 +304,15 @@ class CouncilOrchestrator:
             cached = self._load_cached_member_response(cache_key, member)
             if cached is not None:
                 audits_by_id[member.model_id] = cached
+                logger.info("Council Stage 2b cache hit — %s", self._member_label(member))
             else:
                 members_to_run.append(member)
 
         if members_to_run:
+            logger.info(
+                "Council Stage 2b running members: %s",
+                ", ".join(self._member_label(member) for member in members_to_run),
+            )
             gathered = await asyncio.gather(
                 *[
                     member.generate(
@@ -304,6 +337,7 @@ class CouncilOrchestrator:
                 if item.clean_response.strip():
                     audits_by_id[member.model_id] = item
                     self._checkpoint_member_response(self._stage2b_cache_key(member.model_id), item)
+                    logger.info("Council Stage 2b checkpoint saved — %s", self._member_label(member))
 
         return {
             self._member_label(member): audits_by_id[member.model_id]
@@ -343,6 +377,7 @@ class CouncilOrchestrator:
                 + ", ".join(missing)
                 + "."
             )
+        logger.info("Council preflight confirmed %d model(s) in OpenRouter catalog", len(self.members))
 
     async def _stage0_frame_question(self, findings_text: str) -> str:
         """Chairman produces a short analytical frame for the session."""

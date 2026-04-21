@@ -209,7 +209,7 @@ def test_batch_processor_resume_count_reflects_checkpoint(
         with caplog.at_level("INFO", logger="BatchProcessor"):
             result = processor.run()
         assert result.status == "complete"
-        assert result.total_classified == 15
+        assert result.total_classified == 25
         assert result.batches_processed == 2
         messages = [
             record.getMessage()
@@ -219,6 +219,80 @@ def test_batch_processor_resume_count_reflects_checkpoint(
         assert messages
         assert "10 already classified" in messages[0]
         assert "15 remaining" in messages[0]
+
+
+def test_batch_result_total_classified_uses_cumulative_db_count(llm_env) -> None:
+    """BatchProcessor should persist the cumulative classified count after resumed runs."""
+    config = Config.from_env()
+    with DatabaseManager(db_path=":memory:") as db:
+        db.create_schema()
+        db.insert_reviews([make_review(review_id=f"cum{i}", rating=3, text=f"r{i}") for i in range(25)])
+        for i in range(10):
+            db.update_classification(f"cum{i}", '{"product_area": "ux"}')
+
+        classifier = ReviewClassifier(config)
+        classifier.classify_batch = lambda reviews: [
+            ClassificationResult(
+                product_area="ux",
+                specific_feature_request=None,
+                workflow_breakdown=False,
+                confidence=0.9,
+                raw_response="",
+                parse_failed=False,
+            )
+            for _ in reviews
+        ]
+        processor = BatchProcessor(classifier=classifier, db=db)
+        processor.SLEEP_BETWEEN_BATCHES = 0.0
+        result = processor.run()
+
+        assert result.total_classified == 25
+        state = db.get_phase_state("classification")
+        assert state is not None
+        assert state["metadata"]["total_classified"] == 25
+
+
+def test_batch_processor_no_unclassified_preserves_cumulative_total(llm_env) -> None:
+    """A no-op rerun should keep cumulative totals in the classification checkpoint."""
+    config = Config.from_env()
+    with DatabaseManager(db_path=":memory:") as db:
+        db.create_schema()
+        db.insert_reviews([make_review(review_id=f"done{i}", rating=3, text=f"r{i}") for i in range(12)])
+        for i in range(12):
+            db.update_classification(f"done{i}", '{"product_area": "ux"}')
+
+        processor = BatchProcessor(classifier=ReviewClassifier(config), db=db)
+        result = processor.run()
+
+        assert result.status == "complete"
+        assert result.total_classified == 12
+        state = db.get_phase_state("classification")
+        assert state is not None
+        assert state["metadata"]["total_classified"] == 12
+        assert state["metadata"]["status"] == "complete"
+
+
+def test_batch_processor_no_unclassified_writes_debug_result_file(
+    llm_env, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A no-op rerun should still refresh classification_complete.json."""
+    monkeypatch.chdir(tmp_path)
+    config = Config.from_env()
+    with DatabaseManager(db_path=str(tmp_path / "test.db")) as db:
+        db.create_schema()
+        db.insert_reviews([make_review(review_id=f"file{i}", rating=3, text=f"r{i}") for i in range(5)])
+        for i in range(5):
+            db.update_classification(f"file{i}", '{"product_area": "ux"}')
+
+        processor = BatchProcessor(classifier=ReviewClassifier(config), db=db)
+        result = processor.run()
+
+    assert result.total_classified == 5
+    output_path = tmp_path / "outputs" / "classification_complete.json"
+    assert output_path.exists()
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["total_classified"] == 5
+    assert payload["status"] == "complete"
 
 
 def test_classifier_fast_fails_on_first_attempt_rate_limit(

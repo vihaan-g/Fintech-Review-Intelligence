@@ -15,7 +15,7 @@ The pipeline does five things in order:
 1. **Collect** — scrape Play Store reviews (India, English) for five apps
    using `google-play-scraper`, store them in a single SQLite database
    with WAL mode enabled.
-2. **Analyse (SQL)** — run 8 analytical queries (rating distribution,
+2. **Analyze (SQL)** — run 8 analytical queries (rating distribution,
    high-signal low-rating reviews, developer reply impact, keyword
    frequency, review volume by week, cross-app summary, classification
    breakdown, top classified complaints) and compile a structured
@@ -26,9 +26,9 @@ The pipeline does five things in order:
 4. **Council** — run a multi-stage LLM deliberation:
    - Stage 0: chairman frames the analytical question (≤100 words).
    - Stage 1: three specialist models generate independent insights in parallel.
-   - Stage 2a: chairman runs an anonymised contrarian pass on specialist outputs.
-   - Stage 2b: specialists audit the anonymised outputs for evidence quality.
-   - Stage 2c: chairman synthesises the audit phase into one audit synthesis.
+   - Stage 2a: chairman runs an anonymized contrarian pass on specialist outputs.
+   - Stage 2b: specialists audit the anonymized outputs for evidence quality.
+   - Stage 2c: chairman synthesizes the audit phase into one audit synthesis.
    - Stage 3: chairman writes the final report.
 5. **Report** — write `outputs/findings_report.md`,
    `outputs/linkedin_snippet.txt`, and `outputs/README.md` (an auto-generated
@@ -75,7 +75,6 @@ outputs/linkedin_snippet.txt
 - Council chairman: Gemini 3.1 Pro Preview — Contrarian Chairman via OpenRouter
 - Council members: Claude Opus 4.7 (First Principles), DeepSeek R1 (Outsider),
   Qwen 3.6 Plus (Expansionist) — all via OpenRouter (paid)
-- Estimated cost per council run: ~$0.059 (Opus 4.7: ~$0.050, DeepSeek R1: ~$0.005, Qwen 3.6 Plus: ~$0.004)
 - All API keys via environment variables — never hardcoded.
 
 ## SQL Queries

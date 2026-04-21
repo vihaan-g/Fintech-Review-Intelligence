@@ -45,14 +45,12 @@ class Config:
         Raises:
             ValueError: If one or more required environment variables are absent.
         """
-        key_map: dict[str, str] = {
-            "OPENROUTER_API_KEY": "",
-        }
+        required_env_vars = ("OPENROUTER_API_KEY",)
 
         missing: list[str] = []
         values: dict[str, str] = {}
 
-        for env_var in key_map:
+        for env_var in required_env_vars:
             value = os.getenv(env_var)
             if not value:
                 missing.append(env_var)

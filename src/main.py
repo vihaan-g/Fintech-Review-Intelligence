@@ -148,7 +148,6 @@ def main() -> None:
                     "volume_spikes": [],
                     "structured_text": "## Data Overview\nDRY RUN — no real data collected.",
                 }
-                os.makedirs("outputs", exist_ok=True)
                 with open("outputs/findings_summary.json", "w", encoding="utf-8") as f:
                     json.dump(mock_summary, f, indent=2)
             else:
@@ -298,7 +297,6 @@ def main() -> None:
                         "total_duration_ms": 0,
                         "generated_at": datetime.now(timezone.utc).isoformat(),
                     }
-                    os.makedirs("outputs", exist_ok=True)
                     with open("outputs/council_result.json", "w", encoding="utf-8") as f:
                         json.dump(mock_result, f, indent=2)
                 else:

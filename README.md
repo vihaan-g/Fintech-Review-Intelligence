@@ -23,14 +23,13 @@ The pipeline does five things in order:
 3. **Classify** — batch-classify every review into product areas
    (onboarding, UX, transactions, support, performance, trust) using
    Gemini 2.5 Flash Lite via OpenRouter.
-4. **Council** — run a 4-stage LLM deliberation:
+4. **Council** — run a multi-stage LLM deliberation:
    - Stage 0: chairman frames the analytical question (≤100 words).
-   - Stage 1: four models generate insights independently, in parallel,
-     each with a cognitive role mandate (First Principles / Outsider / Expansionist).
-   - Stage 2: chairman as Contrarian — anonymised gap analysis (A/B/C/D)
-     with Three Tensions: Outsider vs Experts, Expansionist vs First Principles,
-     Consensus vs Evidence.
-   - Stage 3: chairman synthesises a final report.
+   - Stage 1: three specialist models generate independent insights in parallel.
+   - Stage 2a: chairman runs an anonymised contrarian pass on specialist outputs.
+   - Stage 2b: specialists audit the anonymised outputs for evidence quality.
+   - Stage 2c: chairman synthesises the audit phase into one audit synthesis.
+   - Stage 3: chairman writes the final report.
 5. **Report** — write `outputs/findings_report.md`,
    `outputs/linkedin_snippet.txt`, and `outputs/README.md` (an auto-generated
    companion summary, separate from this hand-written file).
@@ -56,13 +55,15 @@ Play Store (5 apps)
 SQLite DB (reviews.db)
       ↓ SQLAnalyst (8 queries)
 Findings Summary (outputs/findings_summary.json)
-      ↓ Gemini 2.5 Flash Lite (batch classification)
+      ↓ Gemini 2.5 Flash Lite via OpenRouter (batch classification)
 Classification Results
       ↓ 4-Model Council (Karpathy-adapted)
       │  Stage 0: Contrarian Chairman analytical framing
-      │  Stage 1: Role-mandated parallel insights
-      │  Stage 2: Contrarian Three Tensions gap analysis
-      │  Stage 3: Chairman synthesis
+      │  Stage 1: Specialist insights
+      │  Stage 2a: Chairman contrarian pass
+      │  Stage 2b: Anonymized evidence audits
+      │  Stage 2c: Chairman audit synthesis
+      │  Stage 3: Chairman final report
 outputs/findings_report.md
 outputs/linkedin_snippet.txt
 ```
@@ -96,23 +97,24 @@ src/
     sql_analyst.py                   # 8 analytical queries
     findings_summarizer.py           # compiles structured findings
   classification/
-    review_classifier.py             # Gemini classifier (retries, parse-safe)
+    review_classifier.py             # OpenRouter classifier (retries, parse-safe)
     batch_processor.py               # rate-limited batching + checkpointing
   council/
     council_member.py                # one LLM, one API call path
-    council_orchestrator.py          # 4-stage Karpathy council (Stage 0–3)
+    council_orchestrator.py          # staged Karpathy-adapted council (Stage 0, 1, 2a, 2b, 2c, 3)
+    council_prompts.py               # central prompt library for council stages
   agents/
     insight_reporter.py              # generates report / snippet / companion README
 queries/
   analysis_queries.sql               # SQL portfolio artifact
 tests/
-  test_smoke.py                      # 30+ unit / integration tests
+  test_*.py                          # subsystem-focused unit / integration tests
 ```
 
 ## Running Tests
 
 ```bash
-python -m pytest tests/ -v
+python3 -m pytest tests/ -v
 ```
 
 ## Notes

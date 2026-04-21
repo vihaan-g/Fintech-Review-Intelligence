@@ -7,6 +7,7 @@ def test_project_structure() -> None:
     assert (root / "src/config.py").exists()
     assert (root / "src/data_collection/database_manager.py").exists()
     assert (root / "src/council/council_orchestrator.py").exists()
+    assert (root / "src/council/council_prompts.py").exists()
     assert (root / "src/agents/insight_reporter.py").exists()
     assert (root / ".claude/skills/prompt-optimizer/SKILL.md").exists()
     assert (root / ".claude/skills/multi-agent-patterns/SKILL.md").exists()

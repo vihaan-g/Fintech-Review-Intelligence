@@ -66,7 +66,9 @@ class InsightReporter:
 
         Extracts only the fields needed for report generation:
         - stage3_synthesis from council_dict
-        - stage2_gap_analysis from council_dict
+        - stage2_gap_analysis or stage2c_audit_synthesis from council_dict
+        - stage2a_contrarian_pass when available
+        - stage2b_evidence_audits when available
         - generated_at from council_dict
         - structured_text, cross_app_stats, high_signal_reviews from summary_dict
 
@@ -137,10 +139,11 @@ class InsightReporter:
         1. Title
         2. Meta header (timestamp, total reviews, apps)
         3. Key Findings — council_result.stage3_synthesis verbatim
-        4. Analytical Methodology — 2 paragraphs
-        5. SQL-Derived Signals — cross-app table
-        6. High-Signal Pain Points — top 5 reviews
-        7. Data Notes
+        4. Council audit material (audit synthesis, contrarian pass, evidence audits when available)
+        5. Analytical Methodology — 2 paragraphs
+        6. SQL-Derived Signals — cross-app table
+        7. High-Signal Pain Points — top 5 reviews
+        8. Data Notes
         """
         cross_app = self._summary.cross_app_stats or {}
         high_signal = self._summary.high_signal_reviews or []
@@ -395,4 +398,3 @@ class InsightReporter:
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(content)
         return path
-

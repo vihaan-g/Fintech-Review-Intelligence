@@ -1,8 +1,6 @@
 import dataclasses
 import asyncio
 
-import pytest
-
 from src.config import Config
 from src.council.council_member import CouncilMember, MemberResponse
 from src.council.council_orchestrator import CouncilOrchestrator, CouncilResult

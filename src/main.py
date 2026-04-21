@@ -42,7 +42,7 @@ def ensure_outputs_dir() -> None:
 
 def _install_sigint_handler() -> None:
     """Install a clean SIGINT handler that logs and exits 130 instead of traceback."""
-    def _handler(sig: int, frame: object) -> None:
+    def _handler(_sig: int, _frame: object) -> None:
         logging.getLogger(__name__).info(
             "Interrupted (SIGINT) — progress checkpointed. Re-run to resume."
         )
@@ -303,7 +303,7 @@ def main() -> None:
                         json.dump(mock_result, f, indent=2)
                 else:
                     orchestrator = CouncilOrchestrator.default(config=config, db=db)
-                    council_result = orchestrator.run_sync(findings_text)
+                    orchestrator.run_sync(findings_text)
                     db.save_phase_state("council", "complete")
                     logger.info("Council complete — synthesis ready")
 

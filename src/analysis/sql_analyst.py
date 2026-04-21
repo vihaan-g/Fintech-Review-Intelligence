@@ -1,6 +1,5 @@
 """Runs all analytical SQL queries against the reviews database."""
 import logging
-from typing import Any
 
 from src.data_collection.database_manager import DatabaseManager
 

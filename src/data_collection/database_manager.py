@@ -79,7 +79,7 @@ class DatabaseManager:
         self,
         exc_type: type | None,
         exc_val: BaseException | None,
-        exc_tb: Any,
+        _exc_tb: Any,
     ) -> None:
         """Commit on clean exit, rollback on exception, always close connection."""
         if self._conn is None:

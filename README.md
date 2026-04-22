@@ -1,126 +1,211 @@
 # Fintech Review Intelligence
 
-A Python data pipeline that scrapes Play Store reviews for five Indian fintech
-apps (Groww, Jupiter, CRED, PhonePe, Paytm) and surfaces non-obvious product
-intelligence via SQL analysis and a 4-model LLM council adapted from
-Karpathy's council model.
+A product intelligence project that analyzes Play Store reviews across major Indian fintech apps to surface user pain points, trust breakdowns, and cross-app product patterns.
 
-Built as a portfolio project targeting APM / product-analyst roles at Indian
-fintech startups.
+I built this to answer a more useful product question than simple sentiment analysis: **what kinds of failures actually damage trust in fintech products, and which complaints users tolerate when the core product still works?**
 
-## What This Is
+The project analyzes **11,000 Play Store reviews** across **Groww, Jupiter, CRED, PhonePe, and Paytm** using a pipeline that combines **SQLite-based analysis, complaint classification, and structured LLM synthesis** to generate product-facing findings.
 
-The pipeline does five things in order:
+---
 
-1. **Collect** — scrape Play Store reviews (India, English) for five apps
-   using `google-play-scraper`, store them in a single SQLite database
-   with WAL mode enabled.
-2. **Analyze (SQL)** — run 8 analytical queries (rating distribution,
-   high-signal low-rating reviews, developer reply impact, keyword
-   frequency, review volume by week, cross-app summary, classification
-   breakdown, top classified complaints) and compile a structured
-   findings summary.
-3. **Classify** — batch-classify every review into product areas
-   (onboarding, UX, transactions, support, performance, trust) using
-   Gemini 2.5 Flash Lite via OpenRouter.
-4. **Council** — run a multi-stage LLM deliberation:
-   - Stage 0: chairman frames the analytical question (≤100 words).
-   - Stage 1: three specialist models generate independent insights in parallel.
-   - Stage 2a: chairman runs an anonymized contrarian pass on specialist outputs.
-   - Stage 2b: specialists audit the anonymized outputs for evidence quality.
-   - Stage 2c: chairman synthesizes the audit phase into one audit synthesis.
-   - Stage 3: chairman writes the final report.
-5. **Report** — write `outputs/findings_report.md`,
-   `outputs/linkedin_snippet.txt`, and `outputs/README.md` (an auto-generated
-   companion summary, separate from this hand-written file).
+## Why I Built This
 
-## How to Run
+Most review-analysis projects stop at sentiment scores, star distributions, or keyword counts. That is useful, but not enough for real product decision-making.
 
-```bash
-cp .env.example .env            # add OPENROUTER_API_KEY
-pip install -r requirements.txt
-python src/main.py              # full pipeline
-python src/main.py --dry-run    # wiring check, no API calls
-python src/main.py --phase analysis   # single phase (collection / analysis / classification / council / report)
-```
+I wanted to build something closer to a practical product intelligence workflow:
 
-Each phase checkpoints to the `pipeline_state` table — a killed run resumes
-where it left off on the next invocation.
+- collect large-scale user feedback from public app reviews
+- identify high-signal negative feedback
+- classify complaint patterns
+- compare apps at a cross-product level
+- surface findings that matter for product, trust, and support teams
 
-## Architecture
+The goal was not just to analyze reviews, but to turn unstructured user feedback into structured insight.
 
-```
-Play Store (5 apps)
-      ↓ google-play-scraper
-SQLite DB (reviews.db)
-      ↓ SQLAnalyst (8 queries)
-Findings Summary (outputs/findings_summary.json)
-      ↓ Gemini 2.5 Flash Lite via OpenRouter (batch classification)
-Classification Results
-      ↓ 4-Model Council (Karpathy-adapted)
-      │  Stage 0: Contrarian Chairman analytical framing
-      │  Stage 1: Specialist insights
-      │  Stage 2a: Chairman contrarian pass
-      │  Stage 2b: Anonymized evidence audits
-      │  Stage 2c: Chairman audit synthesis
-      │  Stage 3: Chairman final report
-outputs/findings_report.md
-outputs/linkedin_snippet.txt
-```
+---
+
+## Problem Statement
+
+For consumer fintech products, not all complaints matter equally.
+
+Some issues create friction but do not significantly damage long-term trust. Others — especially around onboarding, account access, and financial control — can trigger severe rating collapse and reputational damage.
+
+This project was built to identify:
+
+- which complaint types are most destructive to user trust
+- how complaint patterns differ across major Indian fintech apps
+- whether high support responsiveness actually improves user outcomes
+- what product teams should prioritize based on review evidence
+
+---
+
+## Scope
+
+**Apps analyzed**
+
+- Groww
+- Jupiter
+- CRED
+- PhonePe
+- Paytm
+
+**Dataset**
+
+- 11,000 Play Store reviews
+- 2,200 recent reviews per app
+- English-language reviews
+- India-focused fintech app set
+
+---
+
+## Key Findings
+
+### 1) Trust and account-access failures are far more damaging than UX friction
+
+Jupiter showed severe patterns around onboarding, trust, and account access, along with significantly weaker ratings than the rest of the app set.
+
+This suggests that in fintech, users may tolerate interface friction or clutter, but react very strongly when they feel their money, identity, or access is at risk.
+
+### 2) High developer reply rates do not automatically repair user sentiment
+
+Jupiter had extremely high developer reply coverage on low-rated reviews, but that did not meaningfully improve rating outcomes.
+
+The practical implication is that reactive support cannot compensate for broken core product flows.
+
+### 3) Strong products can absorb UX complaints when core reliability remains intact
+
+Apps like PhonePe and Groww showed that users can still rate a product highly despite complaints about interface clutter or friction, as long as the primary product utility remains dependable.
+
+### 4) Complaint mix matters more than complaint volume alone
+
+This project was designed not just to count negative feedback, but to distinguish between different failure types — such as UX friction, transaction issues, trust breakdowns, onboarding failures, and support-heavy complaints.
+
+That distinction makes the output more useful for prioritization.
+
+---
+
+## What I Built
+
+I built a five-phase Python pipeline:
+
+1. **Collection**  
+   Scrapes Play Store reviews and stores them in SQLite.
+
+2. **Analysis**  
+   Runs SQL-based analysis on review patterns, ratings, time trends, and high-signal negative feedback.
+
+3. **Classification**  
+   Applies structured complaint labeling to reviews so patterns can be grouped semantically instead of only through keywords.
+
+4. **Council**  
+   Uses a staged multi-model review process to challenge weak interpretations and synthesize stronger findings.
+
+5. **Report**  
+   Produces recruiter-readable and product-readable output artifacts from the findings.
+
+---
+
+## Analytical Approach
+
+The analysis layer combines broad quantitative signals with more targeted complaint diagnosis.
+
+### Base analysis
+
+- cross-app summary statistics
+- high-signal low-rating reviews
+- keyword frequency patterns
+- rating trends over time
+- weekly review volume / anomaly signals
+- developer reply behavior
+
+### Classification enrichment
+
+- complaint category breakdowns
+- over-indexing by app
+- top classified complaint examples
+- stronger semantic interpretation of low-rated feedback
+
+This design helped the project move beyond a dashboard-style summary toward sharper product insight.
+
+---
+
+## Council Design
+
+Instead of asking one model to generate a final report directly, I used a staged council system with multiple cognitive roles.
+
+### Council roles
+
+- **Chairman** — frames the problem, challenges weak logic, and writes the final synthesis
+- **First Principles** — focuses on root-cause reasoning
+- **Outsider** — looks for uncomfortable or non-obvious interpretations
+- **Expansionist** — explores broader product and strategy implications
+
+### Council stages
+
+- Stage 0: chairman analytical frame
+- Stage 1: independent specialist analyses
+- Stage 2a: chairman contrarian pass
+- Stage 2b: anonymized evidence audits by specialists
+- Stage 2c: chairman audit synthesis
+- Stage 3: final synthesis
+
+This structure was designed to reduce shallow pattern-matching, unsupported claims, and one-model bias.
+
+---
+
+## Outputs
+
+The project generates a set of structured outputs, including:
+
+- `reviews.db`
+- `findings_summary.json`
+- `council_result.json`
+- `findings_report.md`
+- `linkedin_snippet.txt`
+
+These outputs support both technical inspection and business-facing communication.
+
+---
+
+## Skills Demonstrated
+
+This project demonstrates:
+
+- product thinking through complaint prioritization and cross-app interpretation
+- data analysis using SQL and structured review data
+- Python pipeline design
+- working with SQLite for real project storage and checkpointing
+- converting unstructured text into structured analytical outputs
+- communicating findings in a decision-useful format
+- using LLMs for synthesis with evidence checks instead of naive one-shot prompting
+
+---
+
+## Why This Matters for Product Teams
+
+For fintech products, review data is not just sentiment data. It can reveal:
+
+- where trust is breaking
+- which workflows create the most damaging user pain
+- whether support systems are masking deeper operational problems
+- what kinds of complaints are survivable versus structurally dangerous
+
+This project was built around that idea.
+
+---
 
 ## Tech Stack
 
-- Python 3.11, SQLite (WAL mode), `google-play-scraper`
-- Classification: Gemini 2.5 Flash Lite via OpenRouter
-- Council chairman: Gemini 3.1 Pro Preview — Contrarian Chairman via OpenRouter
-- Council members: Claude Opus 4.7 (First Principles), DeepSeek R1 (Outsider),
-  Qwen 3.6 Plus (Expansionist) — all via OpenRouter (paid)
-- All API keys via environment variables — never hardcoded.
+- **Python**
+- **SQLite**
+- **SQL**
+- **Play Store review scraping**
+- **LLM-based complaint classification and synthesis**
 
-## SQL Queries
+---
 
-See [queries/analysis_queries.sql](queries/analysis_queries.sql) for all 8
-analytical queries, each annotated with what it measures and why it matters
-for product analysis.
+## Repository Goal
 
-## Project Layout
+This repository is meant to demonstrate a profile I want to keep building toward:
 
-```
-src/
-  config.py                          # env var validation
-  main.py                            # pipeline entry point
-  data_collection/
-    review_collector.py              # google-play-scraper wrapper
-    database_manager.py              # SQLite schema + CRUD
-  analysis/
-    sql_analyst.py                   # 8 analytical queries
-    findings_summarizer.py           # compiles structured findings
-  classification/
-    review_classifier.py             # OpenRouter classifier (retries, parse-safe)
-    batch_processor.py               # rate-limited batching + checkpointing
-  council/
-    council_member.py                # one LLM, one API call path
-    council_orchestrator.py          # staged Karpathy-adapted council (Stage 0, 1, 2a, 2b, 2c, 3)
-    council_prompts.py               # central prompt library for council stages
-  agents/
-    insight_reporter.py              # generates report / snippet / companion README
-queries/
-  analysis_queries.sql               # SQL portfolio artifact
-tests/
-  test_*.py                          # subsystem-focused unit / integration tests
-```
-
-## Running Tests
-
-```bash
-python3 -m pytest tests/ -v
-```
-
-## Notes
-
-- Generated artifacts under `outputs/` (findings report, LinkedIn snippet,
-  generated README companion) are intentionally git-ignored. Only the
-  hand-written top-level README is committed.
-- Council results are deterministic in structure but not in content — each
-  real run produces a different synthesis. Re-run without `--dry-run` and
-  check `outputs/findings_report.md` for the latest output.
+**someone who can combine business thinking, product judgment, and technical execution to generate useful insight from real-world data.**
